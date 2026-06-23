@@ -261,4 +261,14 @@ if __name__ == "__main__":
                   f"Max P-Miss: {diag['max_h_p']:.4f} | Max Q-Miss: {diag['max_h_q']:.4f} | "
                   f"Max Gen Viol: {diag['max_gen_viol']:.4f} | Max Thermal: {diag['max_thermal']:.4f}")
 
+    # ... (End of training loop)
+
+    print("\nTraining complete. Saving model weights...")
+    
+    # Define the save path
+    model_save_path = f"./model/pinn_model_{case_name}_{epochs}epochs.pth"
+    
+    # Save the state dictionary
+    torch.save(model.state_dict(), model_save_path)
+    print(f"Model successfully saved to: {model_save_path}")
     print("\nBaseline training loop sequence completed successfully.")
