@@ -13,6 +13,7 @@
 
 # 1. Load any necessary modules (Uncomment and adjust if your HPC requires it)
 module load cuda/12.9.lua
+module load pytorch/24.08
 export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 # 2. Activate your specific Python/PyTorch environment
 source activate pinn_acopf
