@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-ACOPF Unsupervised rahul PINN Training Script
+ACOPF Unsupervised Rahul KKT PINN Training Script
+Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
 """
 
 import sys
@@ -11,6 +12,7 @@ from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 
 # --- MODEL DEFINITION ---
+# IMPORTANT: Paste your exact RahulSinglePINN_Smax class definition here!
 class RahulSinglePINN_Smax(nn.Module):
     """
     Version 2: Single Neural Network for all variables (Primal + Dual).
@@ -77,8 +79,12 @@ class RahulSinglePINN_Smax(nn.Module):
         return (v, pg, qg, lam_p, lam_q, mu_sf, mu_st, 
                 mu_ang_max, mu_ang_min, mu_v_max, mu_v_min, 
                 mu_pg_max, mu_pg_min, mu_qg_max, mu_qg_min)
-
+    
 # --- UTILS & LOSS FUNCTIONS ---
+def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
+    # v: [B, d], M: [K, d, d] -> [B, K]
+    return torch.einsum("bi,kij,bj->bk", v, M, v)
+
 def batch_Mv(M: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     # M: [K, d, d], v: [B, d] -> [B, K, d]
     return torch.einsum('kij,bj->bki', M, v)
@@ -230,6 +236,7 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
 
     return total_loss, diagnostics
 
+
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
     # 0. Hardware Device Discovery & Optimization
@@ -238,7 +245,6 @@ if __name__ == "__main__":
         print(f"CUDA Hardware Acceleration Active: {torch.cuda.get_device_name(0)}")
     else:
         device = torch.device("cpu")
-        # Enforce execution thread optimization for hybrid i7-1255U architectures
         torch.set_num_threads(12)
         print("Running on CPU Profile. Thread threshold established at 12 loops.")
 
@@ -275,52 +281,51 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     # 4. Model Instantiation & Parameter Configurations
-    slack_imag_idx = (problem["a_ref"] == 1).nonzero(as_tuple=True)[0].item()
-
-    model = RahulSinglePINN_Smax(
+    model_rahul = RahulSinglePINN_Smax(
         nbus=problem["nbus"],
         ngen=problem["ngen"],
-        slack_imag_idx=slack_imag_idx
+        nbranch=problem["nbranch"]
     ).to(device)
 
-    loss_weights = {
-        "eq_p": 1000.0,
-        "eq_q": 1000.0,
-        "thermal": 1.0,
-        "ang": 1.0,
-        "v": 1.0,
-        "obj": 0.01
+    loss_weights_rahul = {
+        "primal": 10.0,         
+        "cs": 1.0,              
+        "dual_feas": 1.0,       
+        "stationarity": 0.01     
     }
 
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer_rahul = optim.Adam(model_rahul.parameters(), lr=1e-3)
     epochs = 10000
 
     # 5. Optimization Loop Execution
-    print("\nBeginning execution of parallelized training matrix loops...")
+    print("\nBeginning execution of parallelized training matrix loops for Rahul KKT PINN...")
     for epoch in range(epochs):
-        model.train()
+        model_rahul.train()
         
         for Pd_batch, Qd_batch in train_loader:
-            optimizer.zero_grad()
-            loss, diag = compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, loss_weights)
+            optimizer_rahul.zero_grad()
+            
+            loss, diag = compute_rahul_kkt_smax_loss(
+                model=model_rahul, 
+                Pd_batch=Pd_batch, 
+                Qd_batch=Qd_batch, 
+                problem=problem, 
+                weights=loss_weights_rahul
+            )
+            
             loss.backward()
             
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0)
-            optimizer.step()
+            # Critical: Clip gradients to prevent the quartic s_max derivatives from exploding
+            torch.nn.utils.clip_grad_norm_(model_rahul.parameters(), 10.0)
+            optimizer_rahul.step()
             
         if epoch % 10 == 0:  
             print(f"Epoch {epoch:4d} | Cost: {diag['obj_cost']:7.2f} | "
                   f"Max P-Miss: {diag['max_h_p']:.4f} | Max Q-Miss: {diag['max_h_q']:.4f} | "
                   f"Max Gen Viol: {diag['max_gen_viol']:.4f} | Max Thermal: {diag['max_thermal']:.4f}")
 
-    # ... (End of training loop)
-
-    print("\nTraining complete. Saving model weights...")
-    
-    # Define the save path
-    model_save_path = f"./model/rahul_model_{case_name}_{epochs}epochs.pth"
-    
-    # Save the state dictionary
-    torch.save(model.state_dict(), model_save_path)
-    print(f"Model successfully saved to: {model_save_path}")
-    print("\nBaseline training loop sequence completed successfully.")
+    # 6. Save Model Checkpoint
+    print("\nTraining complete. Saving Rahul model weights...")
+    model_save_path = f"./model/rahul_pinn_{case_name}_{epochs}epochs.pth"
+    torch.save(model_rahul.state_dict(), model_save_path)
+    print(f"Rahul Model successfully saved to: {model_save_path}")
