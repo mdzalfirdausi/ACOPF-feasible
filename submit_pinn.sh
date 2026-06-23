@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=acopf_pinn
-#SBATCH --output=/home/g202210120/projects/ACOPF_Benchmark/logs/pinn_%j.out
-#SBATCH --error=/home/g202210120/projects/ACOPF_Benchmark/logs/pinn_%j.err
+#SBATCH --output=/home/g202210120/projects/ACOPF-feasible/logs/pinn_%j.out
+#SBATCH --error=/home/g202210120/projects/ACOPF-feasible/logs/pinn_%j.err
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -9,7 +9,7 @@
 #SBATCH --mem=32G
 #SBATCH --partition=gpu_x450
 #SBATCH --gres=gpu:1
-#SBATCH --chdir=/home/g202210120/projects/ACOPF_Benchmark
+#SBATCH --chdir=/home/g202210120/projects/ACOPF-feasible
 
 # 1. Load any necessary modules (Uncomment and adjust if your HPC requires it)
 module load cuda/12.9.lua
