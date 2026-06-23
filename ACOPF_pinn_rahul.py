@@ -197,10 +197,13 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
     stationarity_loss = dL_dpg.pow(2).mean() + dL_dqg.pow(2).mean() + dL_dv.pow(2).mean()
 
     # --------------------------------------------------------
-    # E. PRIMAL LOSS (Actual Physical Violations)
+    # E. PRIMAL LOSS (Split to match Baseline Physics Weights)
     # --------------------------------------------------------
-    primal_loss = (
-        h_p.pow(2).mean() + h_q.pow(2).mean() +
+    loss_eq_p = h_p.pow(2).mean()
+    loss_eq_q = h_q.pow(2).mean()
+    
+    # Lump all inequality violations together (Thermal, Angle, Voltage, Generation Limits)
+    loss_ineq = (
         F.relu(g_sf).pow(2).mean() + F.relu(g_st).pow(2).mean() +
         F.relu(g_ang_min).pow(2).mean() + F.relu(g_ang_max).pow(2).mean() +
         F.relu(g_v_max).pow(2).mean() + F.relu(g_v_min).pow(2).mean() +
@@ -208,8 +211,13 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
         F.relu(g_qg_max).pow(2).mean() + F.relu(g_qg_min).pow(2).mean()
     )
 
+    # --------------------------------------------------------
+    # F. TOTAL KKT LOSS AGGREGATION
+    # --------------------------------------------------------
     total_loss = (
-        weights["primal"] * primal_loss +
+        weights["primal_eq_p"] * loss_eq_p +
+        weights["primal_eq_q"] * loss_eq_q +
+        weights["primal_ineq"] * loss_ineq +
         weights["cs"] * cs_loss +
         weights["dual_feas"] * dual_feas_loss +
         weights["stationarity"] * stationarity_loss
@@ -220,7 +228,7 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
     # --------------------------------------------------------
     diagnostics = {
         "loss_total": total_loss.detach().item(),
-        "loss_primal": primal_loss.detach().item(),
+        "loss_primal": (loss_eq_p + loss_eq_q + loss_ineq).detach().item(),
         "loss_kkt_stat": stationarity_loss.detach().item(),
         "loss_kkt_cs": cs_loss.detach().item(),
         
@@ -288,10 +296,12 @@ if __name__ == "__main__":
     ).to(device)
 
     loss_weights_rahul = {
-        "primal": 10.0,         
-        "cs": 1.0,              
-        "dual_feas": 1.0,       
-        "stationarity": 0.01     
+    "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
+    "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
+    "primal_ineq": 1.0,      # Matches baseline "thermal", "ang", "v"
+    "cs": 1.0,               # KKT Complementary Slackness
+    "dual_feas": 1.0,        # KKT Dual Feasibility
+    "stationarity": 0.01     # KKT Stationarity (Implicitly handles your objective cost)
     }
 
     optimizer_rahul = optim.Adam(model_rahul.parameters(), lr=1e-3)
