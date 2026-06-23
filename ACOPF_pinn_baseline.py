@@ -241,7 +241,7 @@ if __name__ == "__main__":
     }
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    epochs = 200 
+    epochs = 10000
 
     # 5. Optimization Loop Execution
     print("\nBeginning execution of parallelized training matrix loops...")
