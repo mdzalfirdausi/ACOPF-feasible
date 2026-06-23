@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ACOPF DC3 (Deep Constraint Completion & Correction) Training Script
+ACOPF FSNet (Feasibility-Seeking Neural Network) Training Script
 Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
 """
 
@@ -82,13 +82,13 @@ def batch_Mv(M: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
 def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
     return torch.einsum("bi,kij,bj->bk", v, M, v)
 
-def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr_steps=10, corr_lr=1e-3):
+def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, seek_steps=5, seek_lr=1e-3):
     B = Pd_batch.shape[0]
     
     # --------------------------------------------------------
-    # 1. FORWARD PASS (Network Prediction)
+    # 1. FORWARD PASS (Initial Guess y_0)
     # --------------------------------------------------------
-    v_pred, pg_pred, qg_pred = model(Pd_batch, Qd_batch, problem)
+    v_0, pg_0, qg_0 = model(Pd_batch, Qd_batch, problem)
 
     # Unpack Problem Matrices
     M_p, M_q = problem["M_p"], problem["M_q"]
@@ -102,101 +102,103 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
     angmin = problem["angmin"].unsqueeze(0).expand(B, -1)
     Vmin = problem["Vmin"].unsqueeze(0).expand(B, -1)
     Vmax = problem["Vmax"].unsqueeze(0).expand(B, -1)
+    pmax = problem["pmax"].unsqueeze(0).expand(B, -1)
+    pmin = problem["pmin"].unsqueeze(0).expand(B, -1)
+    qmax = problem["qmax"].unsqueeze(0).expand(B, -1)
+    qmin = problem["qmin"].unsqueeze(0).expand(B, -1)
     c2 = problem["c2"].unsqueeze(0).expand(B, -1)
     c1 = problem["c1"].unsqueeze(0).expand(B, -1)
     c0 = problem["c0"].unsqueeze(0).expand(B, -1) if "c0" in problem else 0.0
 
     # --------------------------------------------------------
-    # 2. DC3 CORRECTION PHASE (Inner Optimization Loop)
+    # 2. FSNET FEASIBILITY SEEKING (Differentiable Inner Loop)
     # --------------------------------------------------------
-    v_c = v_pred.detach().clone().requires_grad_(True)
-    pg_c = pg_pred.detach().clone().requires_grad_(True)
-    qg_c = qg_pred.detach().clone().requires_grad_(True)
+    # We initialize the seeking variables. We DO NOT detach them.
+    v = v_0
+    pg = pg_0
+    qg = qg_0
     
-    # Define an inner optimizer solely for the correction steps
-    optimizer_corr = torch.optim.Adam([v_c, pg_c, qg_c], lr=corr_lr)
-    
-    with torch.enable_grad():
-        for _ in range(corr_steps):
-            optimizer_corr.zero_grad()
-            
-            # Evaluate Physics on the *Correction* variables
-            vp_c = quad_batch_stack(v_c, M_p)
-            vq_c = quad_batch_stack(v_c, M_q)
-            pf_c = quad_batch_stack(v_c, M_pf); qf_c = quad_batch_stack(v_c, M_qf)
-            pt_c = quad_batch_stack(v_c, M_pt); qt_c = quad_batch_stack(v_c, M_qt)
-            vc_c = quad_batch_stack(v_c, M_c); vs_c = quad_batch_stack(v_c, M_s)
-            vv_c = quad_batch_stack(v_c, M_v)
-            
-            # Constraints
-            h_p_c = (pg_c @ C_g.T) - Pd_batch - vp_c
-            h_q_c = (qg_c @ C_g.T) - Qd_batch - vq_c
-            g_sf_c = (pf_c**2 + qf_c**2) - smax**2
-            g_st_c = (pt_c**2 + qt_c**2) - smax**2
-            g_ang_min_c = torch.tan(angmin) * vc_c - vs_c
-            g_ang_max_c = vs_c - torch.tan(angmax) * vc_c
-            g_v_max_c = vv_c - (Vmax**2)
-            g_v_min_c = (Vmin**2) - vv_c
-            
-            # Sum up all violations to create a repair gradient
-            viol_loss = (
-                h_p_c.pow(2).mean() + h_q_c.pow(2).mean() +
-                F.relu(g_sf_c).pow(2).mean() + F.relu(g_st_c).pow(2).mean() +
-                F.relu(g_ang_min_c).pow(2).mean() + F.relu(g_ang_max_c).pow(2).mean() +
-                F.relu(g_v_max_c).pow(2).mean() + F.relu(g_v_min_c).pow(2).mean()
-            )
-            
-            viol_loss.backward()
-            optimizer_corr.step()
+    for _ in range(seek_steps):
+        # A. Evaluate Constraints on Current State
+        vp = quad_batch_stack(v, M_p); vq = quad_batch_stack(v, M_q)
+        pf = quad_batch_stack(v, M_pf); qf = quad_batch_stack(v, M_qf)
+        pt = quad_batch_stack(v, M_pt); qt = quad_batch_stack(v, M_qt)
+        vc = quad_batch_stack(v, M_c); vs = quad_batch_stack(v, M_s)
+        vv = quad_batch_stack(v, M_v)
+        
+        h_p = (pg @ C_g.T) - Pd_batch - vp
+        h_q = (qg @ C_g.T) - Qd_batch - vq
+        g_sf = (pf**2 + qf**2) - smax**2
+        g_st = (pt**2 + qt**2) - smax**2
+        g_ang_min = torch.tan(angmin) * vc - vs
+        g_ang_max = vs - torch.tan(angmax) * vc
+        g_v_max = vv - (Vmax**2)
+        g_v_min = (Vmin**2) - vv
+        g_pg_max = pg - pmax; g_pg_min = pmin - pg
+        g_qg_max = qg - qmax; g_qg_min = qmin - qg
+        
+        # Sum up all violations to create the Feasibility Objective P(y)
+        viol_loss = (
+            h_p.pow(2).mean() + h_q.pow(2).mean() +
+            F.relu(g_sf).pow(2).mean() + F.relu(g_st).pow(2).mean() +
+            F.relu(g_ang_min).pow(2).mean() + F.relu(g_ang_max).pow(2).mean() +
+            F.relu(g_v_max).pow(2).mean() + F.relu(g_v_min).pow(2).mean() +
+            F.relu(g_pg_max).pow(2).mean() + F.relu(g_pg_min).pow(2).mean() +
+            F.relu(g_qg_max).pow(2).mean() + F.relu(g_qg_min).pow(2).mean()
+        )
+        
+        # B. Compute Differentiable Gradients
+        # create_graph=True allows backprop THROUGH this solver loop.
+        grad_v, grad_pg, grad_qg = torch.autograd.grad(
+            viol_loss, (v, pg, qg), create_graph=True, retain_graph=True
+        )
+        
+        # C. Take a gradient descent step
+        v = v - seek_lr * grad_v
+        pg = pg - seek_lr * grad_pg
+        qg = qg - seek_lr * grad_qg
 
     # --------------------------------------------------------
-    # 3. STANDARD PRIMAL EVALUATION (On original NN output)
+    # 3. FINAL TASK LOSS EVALUATION ON \hat{y} (Post-Seeking)
     # --------------------------------------------------------
-    vp = quad_batch_stack(v_pred, M_p); vq = quad_batch_stack(v_pred, M_q)
-    pf = quad_batch_stack(v_pred, M_pf); qf = quad_batch_stack(v_pred, M_qf)
-    pt = quad_batch_stack(v_pred, M_pt); qt = quad_batch_stack(v_pred, M_qt)
-    vc = quad_batch_stack(v_pred, M_c); vs = quad_batch_stack(v_pred, M_s)
-    vv = quad_batch_stack(v_pred, M_v)
+    vp_f = quad_batch_stack(v, M_p); vq_f = quad_batch_stack(v, M_q)
+    pf_f = quad_batch_stack(v, M_pf); qf_f = quad_batch_stack(v, M_qf)
+    pt_f = quad_batch_stack(v, M_pt); qt_f = quad_batch_stack(v, M_qt)
+    vc_f = quad_batch_stack(v, M_c); vs_f = quad_batch_stack(v, M_s)
+    vv_f = quad_batch_stack(v, M_v)
 
-    h_p = (pg_pred @ C_g.T) - Pd_batch - vp
-    h_q = (qg_pred @ C_g.T) - Qd_batch - vq
-    g_sf = (pf**2 + qf**2) - smax**2
-    g_st = (pt**2 + qt**2) - smax**2
-    g_ang_min = torch.tan(angmin) * vc - vs
-    g_ang_max = vs - torch.tan(angmax) * vc
-    g_v_max = vv - (Vmax**2)
-    g_v_min = (Vmin**2) - vv
+    h_p_f = (pg @ C_g.T) - Pd_batch - vp_f
+    h_q_f = (qg @ C_g.T) - Qd_batch - vq_f
+    g_sf_f = (pf_f**2 + qf_f**2) - smax**2
+    g_st_f = (pt_f**2 + qt_f**2) - smax**2
+    g_ang_min_f = torch.tan(angmin) * vc_f - vs_f
+    g_ang_max_f = vs_f - torch.tan(angmax) * vc_f
+    g_v_max_f = vv_f - (Vmax**2)
+    g_v_min_f = (Vmin**2) - vv_f
+    g_pg_max_f = pg - pmax; g_pg_min_f = pmin - pg
+    g_qg_max_f = qg - qmax; g_qg_min_f = qmin - qg
 
-    cost_per_gen = c2 * (pg_pred ** 2) + c1 * pg_pred + c0
+    # Objective Cost at the feasible point
+    cost_per_gen = c2 * (pg ** 2) + c1 * pg + c0
     obj = cost_per_gen.sum(dim=1).mean()
 
     # --- UPDATED TO MATCH BASELINE WEIGHT STRUCTURE ---
-    loss_eq_p = h_p.pow(2).mean()
-    loss_eq_q = h_q.pow(2).mean()
-    
+    loss_eq_p = h_p_f.pow(2).mean()
+    loss_eq_q = h_q_f.pow(2).mean()
+
     loss_ineq = (
-        F.relu(g_sf).pow(2).mean() + F.relu(g_st).pow(2).mean() +
-        F.relu(g_ang_min).pow(2).mean() + F.relu(g_ang_max).pow(2).mean() +
-        F.relu(g_v_max).pow(2).mean() + F.relu(g_v_min).pow(2).mean()
+        F.relu(g_sf_f).pow(2).mean() + F.relu(g_st_f).pow(2).mean() +
+        F.relu(g_ang_min_f).pow(2).mean() + F.relu(g_ang_max_f).pow(2).mean() +
+        F.relu(g_v_max_f).pow(2).mean() + F.relu(g_v_min_f).pow(2).mean() +
+        F.relu(g_pg_max_f).pow(2).mean() + F.relu(g_pg_min_f).pow(2).mean() +
+        F.relu(g_qg_max_f).pow(2).mean() + F.relu(g_qg_min_f).pow(2).mean()
     )
 
-    # --------------------------------------------------------
-    # 4. DC3 TARGET LOSS
-    # --------------------------------------------------------
-    # Penalize distance between Neural Network output and the Repaired Target
-    dc3_corr_loss = (
-        F.mse_loss(v_pred, v_c.detach()) + 
-        F.mse_loss(pg_pred, pg_c.detach()) + 
-        F.mse_loss(qg_pred, qg_c.detach())
-    )
-
-    # --- UPDATED TOTAL LOSS CALCULATION ---
     total_loss = (
         (weights["primal_eq_p"] * loss_eq_p) + 
         (weights["primal_eq_q"] * loss_eq_q) + 
         (weights["primal_ineq"] * loss_ineq) + 
-        (weights["obj"] * obj) + 
-        (weights["dc3_corr"] * dc3_corr_loss)
+        (weights["obj"] * obj)
     )
 
     # --------------------------------------------------------
@@ -205,14 +207,16 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
     diagnostics = {
         "loss_total": total_loss.detach().item(),
         "loss_primal": (loss_eq_p + loss_eq_q + loss_ineq).detach().item(),
-        "loss_dc3_corr": dc3_corr_loss.detach().item(),
         "obj_cost": obj.detach().item(),
         
-        "max_h_p": h_p.abs().max().detach().item(),
-        "max_h_q": h_q.abs().max().detach().item(),
-        "max_thermal": torch.max(F.relu(g_sf).max(), F.relu(g_st).max()).detach().item(),
-        "max_v_viol": torch.max(F.relu(g_v_max).max(), F.relu(g_v_min).max()).detach().item(),
-        "max_gen_viol": 0.0 # Baseline model bounds generators by construction!
+        "max_h_p": h_p_f.abs().max().detach().item(),
+        "max_h_q": h_q_f.abs().max().detach().item(),
+        "max_thermal": torch.max(F.relu(g_sf_f).max(), F.relu(g_st_f).max()).detach().item(),
+        "max_v_viol": torch.max(F.relu(g_v_max_f).max(), F.relu(g_v_min_f).max()).detach().item(),
+        "max_gen_viol": torch.max(
+            torch.max(F.relu(g_pg_max_f).max(), F.relu(g_pg_min_f).max()),
+            torch.max(F.relu(g_qg_max_f).max(), F.relu(g_qg_min_f).max())
+        ).detach().item()
     }
 
     return total_loss, diagnostics
@@ -264,56 +268,56 @@ if __name__ == "__main__":
     # 4. Model Instantiation & Parameter Configurations
     slack_imag_idx = (problem["a_ref"] == 1).nonzero(as_tuple=True)[0].item()
 
-    model_dc3 = baselineQCQPMLP(
+    model_fsnet = baselineQCQPMLP(
         nbus=problem["nbus"],
         ngen=problem["ngen"],
         slack_imag_idx=slack_imag_idx
     ).to(device)
 
-    optimizer_dc3 = optim.Adam(model_dc3.parameters(), lr=1e-3)
+    optimizer_fsnet = optim.Adam(model_fsnet.parameters(), lr=1e-3)
 
-    # --- UPDATED DC3 LOSS WEIGHTS ---
-    loss_weights_dc3 = {
+    # --- UPDATED FSNET LOSS WEIGHTS ---
+    loss_weights_fsnet = {
         "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
         "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
-        "primal_ineq": 1.0,      # Soft penalty on inequality constraints
-        "obj": 0.01,             # Generation cost weight
-        "dc3_corr": 50.0         # Heavy weight pushing predictions towards the repaired targets
+        "primal_ineq": 1.0,      # Matches baseline inequalities
+        "obj": 0.01              # Generation cost weight matching baseline
     }
 
     epochs = 10000
 
     # 5. Optimization Loop Execution
-    print("\nBeginning execution of parallelized training matrix loops for DC3...")
+    print("\nBeginning execution of parallelized training matrix loops for FSNet...")
     for epoch in range(epochs):
-        model_dc3.train()
+        model_fsnet.train()
         
         for Pd_batch, Qd_batch in train_loader:
-            optimizer_dc3.zero_grad()
+            optimizer_fsnet.zero_grad()
             
-            # Inner loop configuration (corr_steps=5) for deep constraint completion
-            loss, diag = compute_dc3_qcqp_smax_loss(
-                model=model_dc3, 
+            # Run FSNet with 5 unrolled seeking steps
+            loss, diag = compute_fsnet_qcqp_smax_loss(
+                model=model_fsnet, 
                 Pd_batch=Pd_batch, 
                 Qd_batch=Qd_batch, 
                 problem=problem, 
-                weights=loss_weights_dc3,
-                corr_steps=5,      
-                corr_lr=1e-2      
+                weights=loss_weights_fsnet,
+                seek_steps=5,     
+                seek_lr=1e-2      
             )
             
             loss.backward()
             
-            torch.nn.utils.clip_grad_norm_(model_dc3.parameters(), 10.0)
-            optimizer_dc3.step()
+            # Clipping is mandatory because second-order autograd gradients can explode
+            torch.nn.utils.clip_grad_norm_(model_fsnet.parameters(), 10.0)
+            optimizer_fsnet.step()
             
         if epoch % 10 == 0:  
             print(f"Epoch {epoch:4d} | Cost: {diag['obj_cost']:7.2f} | "
                   f"Max P-Miss: {diag['max_h_p']:.4f} | Max Q-Miss: {diag['max_h_q']:.4f} | "
-                  f"Max Gen Viol: {diag['max_gen_viol']:.4f} | Max Thermal: {diag['max_thermal']:.4f} | DC3 Corr: {diag['loss_dc3_corr']:.4f}")
+                  f"Max Gen Viol: {diag['max_gen_viol']:.4f} | Max Thermal: {diag['max_thermal']:.4f}")
 
     # 6. Save Model Checkpoint
-    print("\nTraining complete. Saving DC3 model weights...")
-    model_save_path = f"./model/dc3_model_{case_name}_{epochs}epochs.pth"
-    torch.save(model_dc3.state_dict(), model_save_path)
-    print(f"DC3 Model successfully saved to: {model_save_path}")
+    print("\nTraining complete. Saving FSNet model weights...")
+    model_save_path = f"./model/fsnet_model_{case_name}_{epochs}epochs.pth"
+    torch.save(model_fsnet.state_dict(), model_save_path)
+    print(f"FSNet Model successfully saved to: {model_save_path}")
