@@ -10,6 +10,7 @@
 #SBATCH --partition=gpu_x450
 #SBATCH --gres=gpu:1
 #SBATCH --exclude=gpu0002
+#SBATCH --nodelist=gpu0003,gpu0004
 #SBATCH --chdir=/home/g202210120/projects/ACOPF-feasible
 
 # 1. Capture the filename passed after the sbatch command
