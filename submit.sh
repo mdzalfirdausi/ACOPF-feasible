@@ -26,6 +26,7 @@ mkdir -p ./model
 mkdir -p ./logs
 
 # 3. Environment Setup
+module load conda/25.08
 source activate pytorch
 
 # 4. Hardware/Environment Check
