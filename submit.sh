@@ -40,4 +40,4 @@ echo "Node: $(hostname)"
 echo "GPU Allocated: $CUDA_VISIBLE_DEVICES"
 
 # 5. Run the target script
-srun python "$SCRIPT_NAME"
+srun /software/conda/bin/python "$SCRIPT_NAME"
