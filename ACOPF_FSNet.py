@@ -3,7 +3,7 @@
 ACOPF FSNet (Feasibility-Seeking Neural Network) Training Script
 Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
 """
-
+import time
 import sys
 import torch
 import torch.nn as nn
@@ -113,50 +113,59 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
     # --------------------------------------------------------
     # 2. FSNET FEASIBILITY SEEKING (Differentiable Inner Loop)
     # --------------------------------------------------------
-    # We initialize the seeking variables. We DO NOT detach them.
-    v = v_0
-    pg = pg_0
-    qg = qg_0
+    is_training = torch.is_grad_enabled()
+
+    if not is_training:
+        # During validation, detach from the frozen network and enable gradients locally
+        v = v_0.detach().requires_grad_(True)
+        pg = pg_0.detach().requires_grad_(True)
+        qg = qg_0.detach().requires_grad_(True)
+    else:
+        # During training, keep the variables connected to the network's computation graph
+        v = v_0
+        pg = pg_0
+        qg = qg_0
     
-    for _ in range(seek_steps):
-        # A. Evaluate Constraints on Current State
-        vp = quad_batch_stack(v, M_p); vq = quad_batch_stack(v, M_q)
-        pf = quad_batch_stack(v, M_pf); qf = quad_batch_stack(v, M_qf)
-        pt = quad_batch_stack(v, M_pt); qt = quad_batch_stack(v, M_qt)
-        vc = quad_batch_stack(v, M_c); vs = quad_batch_stack(v, M_s)
-        vv = quad_batch_stack(v, M_v)
-        
-        h_p = (pg @ C_g.T) - Pd_batch - vp
-        h_q = (qg @ C_g.T) - Qd_batch - vq
-        g_sf = (pf**2 + qf**2) - smax**2
-        g_st = (pt**2 + qt**2) - smax**2
-        g_ang_min = torch.tan(angmin) * vc - vs
-        g_ang_max = vs - torch.tan(angmax) * vc
-        g_v_max = vv - (Vmax**2)
-        g_v_min = (Vmin**2) - vv
-        g_pg_max = pg - pmax; g_pg_min = pmin - pg
-        g_qg_max = qg - qmax; g_qg_min = qmin - qg
-        
-        # Sum up all violations to create the Feasibility Objective P(y)
-        viol_loss = (
-            h_p.pow(2).mean() + h_q.pow(2).mean() +
-            F.relu(g_sf).pow(2).mean() + F.relu(g_st).pow(2).mean() +
-            F.relu(g_ang_min).pow(2).mean() + F.relu(g_ang_max).pow(2).mean() +
-            F.relu(g_v_max).pow(2).mean() + F.relu(g_v_min).pow(2).mean() +
-            F.relu(g_pg_max).pow(2).mean() + F.relu(g_pg_min).pow(2).mean() +
-            F.relu(g_qg_max).pow(2).mean() + F.relu(g_qg_min).pow(2).mean()
-        )
-        
-        # B. Compute Differentiable Gradients
-        # create_graph=True allows backprop THROUGH this solver loop.
-        grad_v, grad_pg, grad_qg = torch.autograd.grad(
-            viol_loss, (v, pg, qg), create_graph=True, retain_graph=True
-        )
-        
-        # C. Take a gradient descent step
-        v = v - seek_lr * grad_v
-        pg = pg - seek_lr * grad_pg
-        qg = qg - seek_lr * grad_qg
+    with torch.enable_grad(): # Force autograd to be active for the seeking loop
+        for _ in range(seek_steps):
+            # A. Evaluate Constraints on Current State
+            vp = quad_batch_stack(v, M_p); vq = quad_batch_stack(v, M_q)
+            pf = quad_batch_stack(v, M_pf); qf = quad_batch_stack(v, M_qf)
+            pt = quad_batch_stack(v, M_pt); qt = quad_batch_stack(v, M_qt)
+            vc = quad_batch_stack(v, M_c); vs = quad_batch_stack(v, M_s)
+            vv = quad_batch_stack(v, M_v)
+            
+            h_p = (pg @ C_g.T) - Pd_batch - vp
+            h_q = (qg @ C_g.T) - Qd_batch - vq
+            g_sf = (pf**2 + qf**2) - smax**2
+            g_st = (pt**2 + qt**2) - smax**2
+            g_ang_min = torch.tan(angmin) * vc - vs
+            g_ang_max = vs - torch.tan(angmax) * vc
+            g_v_max = vv - (Vmax**2)
+            g_v_min = (Vmin**2) - vv
+            g_pg_max = pg - pmax; g_pg_min = pmin - pg
+            g_qg_max = qg - qmax; g_qg_min = qmin - qg
+            
+            # Sum up all violations to create the Feasibility Objective P(y)
+            viol_loss = (
+                h_p.pow(2).mean() + h_q.pow(2).mean() +
+                F.relu(g_sf).pow(2).mean() + F.relu(g_st).pow(2).mean() +
+                F.relu(g_ang_min).pow(2).mean() + F.relu(g_ang_max).pow(2).mean() +
+                F.relu(g_v_max).pow(2).mean() + F.relu(g_v_min).pow(2).mean() +
+                F.relu(g_pg_max).pow(2).mean() + F.relu(g_pg_min).pow(2).mean() +
+                F.relu(g_qg_max).pow(2).mean() + F.relu(g_qg_min).pow(2).mean()
+            )
+            
+            # B. Compute Differentiable Gradients
+            # create_graph=is_training allows backprop to the NN during training, but saves memory in val
+            grad_v, grad_pg, grad_qg = torch.autograd.grad(
+                viol_loss, (v, pg, qg), create_graph=is_training, retain_graph=True
+            )
+            
+            # C. Take a gradient descent step (moving closer to feasibility)
+            v = v - seek_lr * grad_v
+            pg = pg - seek_lr * grad_pg
+            qg = qg - seek_lr * grad_qg
 
     # --------------------------------------------------------
     # 3. FINAL TASK LOSS EVALUATION ON \hat{y} (Post-Seeking)
@@ -221,7 +230,6 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
 
     return total_loss, diagnostics
 
-
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
     # 0. Hardware Device Discovery & Optimization
@@ -254,6 +262,9 @@ if __name__ == "__main__":
     # Slice arrays and ensure deployment to the designated target device
     train_Pd = problem["Pd_all"][:train_size].to(device)
     train_Qd = problem["Qd_all"][:train_size].to(device)
+    # --- Slice VAL arrays and deploy to the target device ---
+    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device)
+    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device)
 
     # Transition background system tensors to matching target device
     for key, value in problem.items():
@@ -285,9 +296,13 @@ if __name__ == "__main__":
     }
 
     epochs = 10000
+    # --- Initialize checkpoint trackers ---
+    best_val_loss = float('inf')
+    model_save_path = f"./model/best_fsnet_model_{case_name}_{epochs}epochs.pth"
 
     # 5. Optimization Loop Execution
     print("\nBeginning execution of parallelized training matrix loops for FSNet...")
+    start_time = time.time()
     for epoch in range(epochs):
         model_fsnet.train()
         
@@ -312,12 +327,31 @@ if __name__ == "__main__":
             optimizer_fsnet.step()
             
         if epoch % 10 == 0:  
-            print(f"Epoch {epoch:4d} | Cost: {diag['obj_cost']:7.2f} | "
-                  f"Max P-Miss: {diag['max_h_p']:.4f} | Max Q-Miss: {diag['max_h_q']:.4f} | "
-                  f"Max Gen Viol: {diag['max_gen_viol']:.4f} | Max Thermal: {diag['max_thermal']:.4f}")
+            # 1. Switch to evaluation mode and freeze gradients
+            model_fsnet.eval()
+            with torch.no_grad():
+                # Evaluate the entire validation set at once
+                val_loss, val_diag = compute_fsnet_qcqp_smax_loss(model_fsnet, val_Pd, val_Qd, problem, loss_weights_fsnet)
 
-    # 6. Save Model Checkpoint
-    print("\nTraining complete. Saving FSNet model weights...")
-    model_save_path = f"./model/fsnet_model_{case_name}_{epochs}epochs.pth"
-    torch.save(model_fsnet.state_dict(), model_save_path)
-    print(f"FSNet Model successfully saved to: {model_save_path}")
+            # 2. Checkpointing Logic: If this is the lowest validation loss we've seen, save it!
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                torch.save(model_fsnet.state_dict(), model_save_path)
+                saved_flag = " [*SAVED BEST*]"
+            else:
+                saved_flag = ""
+
+            print(f"Epoch {epoch:4d} | Val Loss: {val_loss:.4f} | Val Cost: {val_diag['obj_cost']:7.2f} | "
+                  f"Val Max P-Miss: {val_diag['max_h_p']:.4f} | Val Max Q-Miss: {val_diag['max_h_q']:.4f} | "
+                  f"Val Max Gen Viol: {val_diag['max_gen_viol']:.4f} | Val Max Thermal: {val_diag['max_thermal']:.4f}{saved_flag}")
+    
+    end_time = time.time()
+    total_time_seconds = end_time - start_time
+    # Format into Hours, Minutes, and Seconds
+    hours, remainder = divmod(total_time_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    print("\n" + "="*50)
+    print(f"Training Complete!")
+    print(f"Total Training Time: {int(hours):02d}h {int(minutes):02d}m {seconds:05.2f}s")
+    print(f"Best model weights saved to: {model_save_path}")
+    print("="*50 + "\n")

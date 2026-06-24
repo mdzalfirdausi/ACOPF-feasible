@@ -4,6 +4,7 @@ ACOPF DC3 (Deep Constraint Completion & Correction) Training Script
 Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
 """
 
+import time
 import sys
 import torch
 import torch.nn as nn
@@ -250,6 +251,9 @@ if __name__ == "__main__":
     # Slice arrays and ensure deployment to the designated target device
     train_Pd = problem["Pd_all"][:train_size].to(device)
     train_Qd = problem["Qd_all"][:train_size].to(device)
+    # --- Slice VAL arrays and deploy to the target device ---
+    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device)
+    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device)
 
     # Transition background system tensors to matching target device
     for key, value in problem.items():
@@ -282,9 +286,13 @@ if __name__ == "__main__":
     }
 
     epochs = 10000
+    # --- Initialize checkpoint trackers ---
+    best_val_loss = float('inf')
+    model_save_path = f"./model/best_dc3_model_{case_name}_{epochs}epochs.pth"
 
     # 5. Optimization Loop Execution
     print("\nBeginning execution of parallelized training matrix loops for DC3...")
+    start_time = time.time()
     for epoch in range(epochs):
         model_dc3.train()
         
@@ -307,13 +315,31 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model_dc3.parameters(), 10.0)
             optimizer_dc3.step()
             
-        if epoch % 10 == 0:  
-            print(f"Epoch {epoch:4d} | Cost: {diag['obj_cost']:7.2f} | "
-                  f"Max P-Miss: {diag['max_h_p']:.4f} | Max Q-Miss: {diag['max_h_q']:.4f} | "
-                  f"Max Gen Viol: {diag['max_gen_viol']:.4f} | Max Thermal: {diag['max_thermal']:.4f} | DC3 Corr: {diag['loss_dc3_corr']:.4f}")
+        if epoch % 10 == 0:
+            # 1. Switch to evaluation mode and freeze gradients
+            model_dc3.eval()
+            with torch.no_grad():
+                # Evaluate the entire validation set at once
+                val_loss, val_diag = compute_dc3_qcqp_smax_loss(model_dc3, val_Pd, val_Qd, problem, loss_weights_dc3)
 
-    # 6. Save Model Checkpoint
-    print("\nTraining complete. Saving DC3 model weights...")
-    model_save_path = f"./model/dc3_model_{case_name}_{epochs}epochs.pth"
-    torch.save(model_dc3.state_dict(), model_save_path)
-    print(f"DC3 Model successfully saved to: {model_save_path}")
+            # 2. Checkpointing Logic: If this is the lowest validation loss we've seen, save it!
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                torch.save(model_dc3.state_dict(), model_save_path)
+                saved_flag = " [*SAVED BEST*]"
+            else:
+                saved_flag = ""
+
+            print(f"Epoch {epoch:4d} | Val Loss: {val_loss:.4f} | Val Cost: {val_diag['obj_cost']:7.2f} | "
+                  f"Val Max P-Miss: {val_diag['max_h_p']:.4f} | Val Max Q-Miss: {val_diag['max_h_q']:.4f} | "
+                  f"Val Max Gen Viol: {val_diag['max_gen_viol']:.4f} | Val Max Thermal: {val_diag['max_thermal']:.4f}{saved_flag}")
+    end_time = time.time()
+    total_time_seconds = end_time - start_time
+    # Format into Hours, Minutes, and Seconds
+    hours, remainder = divmod(total_time_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    print("\n" + "="*50)
+    print(f"Training Complete!")
+    print(f"Total Training Time: {int(hours):02d}h {int(minutes):02d}m {seconds:05.2f}s")
+    print(f"Best model weights saved to: {model_save_path}")
+    print("="*50 + "\n")

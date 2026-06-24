@@ -4,6 +4,7 @@ ACOPF Unsupervised Baseline PINN Training Script
 Optimized for Intel i7-1255U / CUDA Acceleration
 """
 
+import time
 import sys
 import torch
 import torch.nn as nn
@@ -212,6 +213,10 @@ if __name__ == "__main__":
     train_Pd = problem["Pd_all"][:train_size].to(device)
     train_Qd = problem["Qd_all"][:train_size].to(device)
 
+    # --- Slice VAL arrays and deploy to the target device ---
+    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device)
+    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device)
+
     # Transition background system tensors to matching target device
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
@@ -242,8 +247,12 @@ if __name__ == "__main__":
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     epochs = 10000
+    # --- Initialize checkpoint trackers ---
+    best_val_loss = float('inf')
+    model_save_path = f"./model/best_pinn_model_{case_name}_{epochs}epochs.pth"
 
     # 5. Optimization Loop Execution
+    start_time = time.time()
     print("\nBeginning execution of parallelized training matrix loops...")
     for epoch in range(epochs):
         model.train()
@@ -255,20 +264,33 @@ if __name__ == "__main__":
             
             torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0)
             optimizer.step()
-            
+
         if epoch % 10 == 0:  
-            print(f"Epoch {epoch:4d} | Cost: {diag['obj_cost']:7.2f} | "
-                  f"Max P-Miss: {diag['max_h_p']:.4f} | Max Q-Miss: {diag['max_h_q']:.4f} | "
-                  f"Max Gen Viol: {diag['max_gen_viol']:.4f} | Max Thermal: {diag['max_thermal']:.4f}")
+            # 1. Switch to evaluation mode and freeze gradients
+            model.eval()
+            with torch.no_grad():
+                # Evaluate the entire validation set at once
+                val_loss, val_diag = compute_qcqp_loss(model, val_Pd, val_Qd, problem, loss_weights)
+            
+            # 2. Checkpointing Logic: If this is the lowest validation loss we've seen, save it!
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                torch.save(model.state_dict(), model_save_path)
+                saved_flag = " [*SAVED BEST*]"
+            else:
+                saved_flag = ""
 
-    # ... (End of training loop)
-
-    print("\nTraining complete. Saving model weights...")
-    
-    # Define the save path
-    model_save_path = f"./model/pinn_model_{case_name}_{epochs}epochs.pth"
-    
-    # Save the state dictionary
-    torch.save(model.state_dict(), model_save_path)
-    print(f"Model successfully saved to: {model_save_path}")
-    print("\nBaseline training loop sequence completed successfully.")
+            # 3. Print the comparison
+            print(f"Epoch {epoch:4d} | Val Loss: {val_loss:.4f} | Val Cost: {val_diag['obj_cost']:7.2f} | "
+                  f"Val Max P-Miss: {val_diag['max_h_p']:.4f} | Max Q-Miss: {val_diag['max_h_q']:.4f} |" 
+                  f" Val Max Gen Viol: {val_diag['max_gen_viol']:.4f} | Val Max Thermal: {val_diag['max_thermal']:.4f}{saved_flag}")
+    end_time = time.time()
+    total_time_seconds = end_time - start_time
+    # Format into Hours, Minutes, and Seconds
+    hours, remainder = divmod(total_time_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    print("\n" + "="*50)
+    print(f"Training Complete!")
+    print(f"Total Training Time: {int(hours):02d}h {int(minutes):02d}m {seconds:05.2f}s")
+    print(f"Best model weights saved to: {model_save_path}")
+    print("="*50 + "\n")
