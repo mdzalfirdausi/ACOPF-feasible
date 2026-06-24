@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=acopf_run
+#SBATCH --job-name=acopf
 #SBATCH --output=/home/g202210120/projects/ACOPF-feasible/logs/%x_%j.out
 #SBATCH --error=/home/g202210120/projects/ACOPF-feasible/logs/%x_%j.err
 #SBATCH --time=24:00:00
@@ -9,8 +9,8 @@
 #SBATCH --mem=32G
 #SBATCH --partition=gpu_x450
 #SBATCH --gres=gpu:1
-#SBATCH --exclude=gpu0002
-#SBATCH --nodelist=gpu0003,gpu0004
+##SBATCH --exclude=gpu0002
+##SBATCH --nodelist=gpu0003,gpu0004
 #SBATCH --chdir=/home/g202210120/projects/ACOPF-feasible
 
 # 1. Capture the filename passed after the sbatch command
