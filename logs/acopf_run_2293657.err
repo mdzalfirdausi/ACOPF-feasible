@@ -1,0 +1,5 @@
+/home/g202210120/.local/lib/python3.13/site-packages/torch/cuda/__init__.py:180: UserWarning: CUDA initialization: The NVIDIA driver on your system is too old (found version 12090). Please update your GPU driver by downloading and installing a new version from the URL: http://www.nvidia.com/Download/index.aspx Alternatively, go to: https://pytorch.org to install a PyTorch version that has been compiled with your version of the CUDA driver. (Triggered internally at /pytorch/c10/cuda/CUDAFunctions.cpp:119.)
+  return torch._C._cuda_getDeviceCount() > 0
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
+slurmstepd: error: *** STEP 2293657.0 ON gpu0002 CANCELLED AT 2026-06-24T14:10:20 ***
+slurmstepd: error: *** JOB 2293657 ON gpu0002 CANCELLED AT 2026-06-24T14:10:20 ***
