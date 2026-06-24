@@ -1,0 +1,15 @@
+/var/spool/slurmd/job2293318/slurm_script: line 15: activate: No such file or directory
+/home/g202210120/.conda/envs/pytorch/lib/python3.11/site-packages/torch/cuda/__init__.py:182: UserWarning: CUDA initialization: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero. (Triggered internally at /pytorch/c10/cuda/CUDAFunctions.cpp:109.)
+  return torch._C._cuda_getDeviceCount() > 0
+Traceback (most recent call last):
+  File "/home/g202210120/projects/ACOPF-feasible/ACOPF_pinn_baseline.py", line 272, in <module>
+    torch.save(model.state_dict(), model_save_path)
+  File "/home/g202210120/.conda/envs/pytorch/lib/python3.11/site-packages/torch/serialization.py", line 966, in save
+    with _open_zipfile_writer(f) as opened_zipfile:
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/g202210120/.conda/envs/pytorch/lib/python3.11/site-packages/torch/serialization.py", line 828, in _open_zipfile_writer
+    return container(name_or_buffer)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/g202210120/.conda/envs/pytorch/lib/python3.11/site-packages/torch/serialization.py", line 792, in __init__
+    torch._C.PyTorchFileWriter(
+RuntimeError: Parent directory ./model does not exist.
