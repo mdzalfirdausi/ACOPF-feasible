@@ -30,8 +30,6 @@ mkdir -p ./logs
 # 3. Environment Setup
 module load conda/25.08
 source activate pytorch
-# Force Python to ignore ~/.local packages
-export PYTHONNOUSERSITE=1
 
 # 4. Hardware/Environment Check
 echo "Job: $SLURM_JOB_NAME"
@@ -40,4 +38,4 @@ echo "Node: $(hostname)"
 echo "GPU Allocated: $CUDA_VISIBLE_DEVICES"
 
 # 5. Run the target script
-srun /software/conda/bin/python "$SCRIPT_NAME"
+srun conda run --no-capture-output -n pytorch python "$SCRIPT_NAME"
