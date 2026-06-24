@@ -9,6 +9,7 @@
 #SBATCH --mem=32G
 #SBATCH --partition=gpu_x450
 #SBATCH --gres=gpu:1
+#SBATCH --exclude=gpu0002
 #SBATCH --chdir=/home/g202210120/projects/ACOPF-feasible
 
 # 1. Capture the filename passed after the sbatch command
@@ -28,6 +29,8 @@ mkdir -p ./logs
 # 3. Environment Setup
 module load conda/25.08
 source activate pytorch
+# Force Python to ignore ~/.local packages
+export PYTHONNOUSERSITE=1
 
 # 4. Hardware/Environment Check
 echo "Job: $SLURM_JOB_NAME"
