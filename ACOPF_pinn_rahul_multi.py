@@ -22,7 +22,7 @@ class BranchedRahulPINN_Smax(nn.Module):
       2. Generation (NN_G)
       3. Dual Variables / Lagrange Multipliers (NN_L)
     """
-    def __init__(self, nbus, ngen, nbranch, hidden_dim=256):
+    def __init__(self, nbus, ngen, nbranch, hidden_dim=512):
         super().__init__()
         self.nbus = nbus
         self.ngen = ngen
