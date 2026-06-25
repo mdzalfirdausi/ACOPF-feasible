@@ -157,19 +157,19 @@ if __name__ == "__main__":
     # 3. Model Registry - Map your files to your classes here!
     models_to_evaluate = {
         "PINN Baseline": {
-            "path": "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs.pth",
+            "path": "./model/pinn_model_pglib_opf_case14_ieee_10000epochs.pth",
             "class": baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device)
         },
         "DC3 Model": {
-            "path": "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs.pth",
+            "path": "./model/dc3_model_pglib_opf_case14_ieee_10000epochs.pth",
             "class": baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device)
         },
         "FSNet Model": {
-            "path": "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs.pth",
+            "path": "./model/fsnet_model_pglib_opf_case14_ieee_10000epochs.pth",
             "class": baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device)
         },
         "Rahul Model": {
-            "path": "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs.pth",
+            "path": "./model/rahul_pinn_pglib_opf_case14_ieee_10000epochs.pth",
             "class": RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device)
         }
     }

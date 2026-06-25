@@ -223,4 +223,4 @@ if __name__ == "__main__":
     print("="*50)
     
     # Optional: Save the ground-truth solutions to disk to plot against PINN outputs
-    np.savez(f"result/ipopt_baseline_{case_name}_{eval_limit}_instances.npz", **solutions)
+    np.savez(f"result/ipopt_baseline_{case_name}_{eval_limit}_instances.npz", **solutions, **metrics)
