@@ -67,38 +67,43 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
     
     # Nodal Power Balance (Real and Reactive)
     for bus_i in range(nbus):
-        # Active Power Balance: sum(P_g) - P_d = v^T M_p v
+        # Active Power Balance
         gen_p = sum(C_g[bus_i, g] * m.pg[g] for g in m.GEN if C_g[bus_i, g] != 0)
         v_Mp_v = quad_form(problem_dict["M_p"][bus_i])
         m.Constraints.add(gen_p - Pd_instance[bus_i] == v_Mp_v)
         
-        # Reactive Power Balance: sum(Q_g) - Q_d = v^T M_q v
+        # Reactive Power Balance
         gen_q = sum(C_g[bus_i, g] * m.qg[g] for g in m.GEN if C_g[bus_i, g] != 0)
         v_Mq_v = quad_form(problem_dict["M_q"][bus_i])
         m.Constraints.add(gen_q - Qd_instance[bus_i] == v_Mq_v)
         
-        # Voltage Magnitude Limits
+        # Voltage Magnitude Limits (Bounds are constants, so pyo.inequality is safe here)
         v_Mv_v = quad_form(problem_dict["M_v"][bus_i])
-        m.Constraints.add(pyo.inequality(Vmin2[bus_i], v_Mv_v, Vmax2[bus_i]))
+        vmin_val = float(Vmin2[bus_i])
+        vmax_val = float(Vmax2[bus_i])
+        m.Constraints.add(pyo.inequality(vmin_val, v_Mv_v, vmax_val))
         
-        # Angle Difference Stability
+        # Angle Difference Stability (Split into two constraints due to variable bounds)
         v_Mc_v = quad_form(problem_dict["M_c"][bus_i])
         v_Ms_v = quad_form(problem_dict["M_s"][bus_i])
-        tan_min = np.tan(problem_dict["angmin"][bus_i])
-        tan_max = np.tan(problem_dict["angmax"][bus_i])
-        m.Constraints.add(pyo.inequality(tan_min * v_Mc_v, v_Ms_v, tan_max * v_Mc_v))
+        tan_min = float(np.tan(problem_dict["angmin"][bus_i]))
+        tan_max = float(np.tan(problem_dict["angmax"][bus_i]))
+        
+        m.Constraints.add(tan_min * v_Mc_v <= v_Ms_v)
+        m.Constraints.add(v_Ms_v <= tan_max * v_Mc_v)
 
     # Branch Thermal Limits (Apparent Power)
     nbranch = problem_dict["M_pf"].shape[0]
     for br in range(nbranch):
+        smax_val = float(smax2[br])
+        
         p_from = quad_form(problem_dict["M_pf"][br])
         q_from = quad_form(problem_dict["M_qf"][br])
-        m.Constraints.add(p_from**2 + q_from**2 <= smax2[br])
+        m.Constraints.add(p_from**2 + q_from**2 <= smax_val)
         
         p_to = quad_form(problem_dict["M_pt"][br])
         q_to = quad_form(problem_dict["M_qt"][br])
-        m.Constraints.add(p_to**2 + q_to**2 <= smax2[br])
-
+        m.Constraints.add(p_to**2 + q_to**2 <= smax_val)
     # 6. Solve the Model
     solver = pyo.SolverFactory('ipopt')
     # Optional: Pass specific Ipopt tolerances (useful for non-convex QCQP)
@@ -153,7 +158,7 @@ if __name__ == "__main__":
     # Pyomo model generation inside a loop is CPU-heavy. 
     # For initial testing, you may want to limit this to 50 or 100 samples.
     num_test_samples = test_Pd.shape[0] 
-    eval_limit = 5 # Change to num_test_samples for the full run
+    eval_limit = num_test_samples # Change to num_test_samples for the full run
     
     print(f"\nStarting Ipopt baseline evaluation over {eval_limit} samples...")
 
@@ -218,4 +223,4 @@ if __name__ == "__main__":
     print("="*50)
     
     # Optional: Save the ground-truth solutions to disk to plot against PINN outputs
-    np.savez(f"ipopt_baseline_{case_name}_{eval_limit}.npz", **solutions)
+    np.savez(f"result/ipopt_baseline_{case_name}_{eval_limit}_instances.npz", **solutions)
