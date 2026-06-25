@@ -32,7 +32,7 @@ class RahulSinglePINN_Smax(nn.Module):
         
         out_dim = self.dim_v + self.dim_g + self.num_duals
         
-        # A SINGLE Neural Network for everything
+        # A SINGLE Neural Network for everything 
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),

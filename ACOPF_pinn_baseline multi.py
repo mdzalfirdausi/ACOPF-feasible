@@ -1,9 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 
 """
 ACOPF Unsupervised Baseline PINN Training Script
 Optimized for Intel i7-1255U / CUDA Acceleration
 """
 
+import os
 import time
 import sys
 import torch
@@ -13,8 +14,9 @@ from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 
 # --- MODEL DEFINITION ---
-class baselineQCQPMLP(nn.Module):
+class BranchedBaselineQCQPMLP(nn.Module):
     """
+    Version 1: Separated Neural Networks for different variables.
     Input:
         Pd: [B, nbus]
         Qd: [B, nbus]
@@ -23,41 +25,55 @@ class baselineQCQPMLP(nn.Module):
         pg: [B, ngen]   (Active generation)
         qg: [B, ngen]   (Reactive generation)
     """
-    def __init__(self, nbus: int, ngen: int, slack_imag_idx: int, hidden: int = 512):
+    def __init__(self, nbus: int, ngen: int, slack_imag_idx: int, hidden: int = 256):
         super().__init__()
         self.nbus = nbus
         self.ngen = ngen
         self.in_dim = 2 * nbus
-        self.out_dim_v = 2 * nbus
-        self.out_dim_g = 2 * ngen 
         self.slack_imag_idx = int(slack_imag_idx)
 
-        # Core MLP Matrix Layer Sequence
-        self.net = nn.Sequential(
-            nn.Linear(self.in_dim, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, self.out_dim_v + self.out_dim_g),
+        # ----------------------------------------------------
+        # Branch 1: Voltage Variables NN 
+        # ----------------------------------------------------
+        self.net_v = nn.Sequential(
+            nn.Linear(self.in_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, 2 * nbus),
+        )
+
+        # ----------------------------------------------------
+        # Branch 2: Active Power Variables NN
+        # ----------------------------------------------------
+        self.net_pg = nn.Sequential(
+            nn.Linear(self.in_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, ngen),
+        )
+
+        # ----------------------------------------------------
+        # Branch 3: Reactive Power Variables NN
+        # ----------------------------------------------------
+        self.net_qg = nn.Sequential(
+            nn.Linear(self.in_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(hidden, ngen),
         )
 
     def forward(self, Pd: torch.Tensor, Qd: torch.Tensor, problem: dict) -> tuple:
         B = Pd.shape[0]
         x = torch.cat([Pd, Qd], dim=-1)
-        raw = self.net(x)
 
-        # 1. Slice outputs
-        v_raw = raw[:, :self.out_dim_v]
-        g_raw = raw[:, self.out_dim_v:]
-        
-        pg_raw = g_raw[:, :self.ngen]
-        qg_raw = g_raw[:, self.ngen:]
+        # 1. Independent Predictions
+        v_raw = self.net_v(x)
+        pg_raw = self.net_pg(x)
+        qg_raw = self.net_qg(x)
 
         # 2. Bound Voltages to [-Vmax, Vmax] using Tanh for smooth gradients
         Vmax_b = problem["Vmax"].reshape(1, -1).expand(B, -1)
-        Vmax_full = torch.cat([Vmax_b, Vmax_b], dim=-1) # Real and imaginary spaces
+        Vmax_full = torch.cat([Vmax_b, Vmax_b], dim=-1) # For real and imaginary parts
         v = torch.tanh(v_raw) * Vmax_full
 
         # Constraint (2m): Enforce slack imaginary part = 0 exactly
@@ -65,7 +81,7 @@ class baselineQCQPMLP(nn.Module):
         v_clone[:, self.slack_imag_idx] = 0.0
         v = v_clone
 
-        # 3. Bound Generation strictly between [min, max] using Sigmoid 
+        # 3. Bound Generation strictly between [min, max] using Sigmoid
         pmax_b = problem["pmax"].reshape(1, -1).expand(B, -1)
         pmin_b = problem["pmin"].reshape(1, -1).expand(B, -1)
         qmax_b = problem["qmax"].reshape(1, -1).expand(B, -1)
@@ -75,7 +91,7 @@ class baselineQCQPMLP(nn.Module):
         qg = qmin_b + torch.sigmoid(qg_raw) * (qmax_b - qmin_b)
 
         return v, pg, qg
-
+    
 # --- UTILS & LOSS FUNCTIONS ---
 def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
     # v: [B, d], M: [K, d, d] -> [B, K]
@@ -188,8 +204,10 @@ if __name__ == "__main__":
     else:
         device = torch.device("cpu")
         # Enforce execution thread optimization for hybrid i7-1255U architectures
-        torch.set_num_threads(12)
-        print("Running on CPU Profile. Thread threshold established at 12 loops.")
+        max_threads = os.cpu_count() or 1
+        torch.set_num_threads(max_threads)
+        
+        print(f"Running on CPU Profile. Thread threshold dynamically established at {max_threads} loops.")
 
     # 1. Load Data
     case_name = 'pglib_opf_case14_ieee'
@@ -230,7 +248,7 @@ if __name__ == "__main__":
     # 4. Model Instantiation & Parameter Configurations
     slack_imag_idx = (problem["a_ref"] == 1).nonzero(as_tuple=True)[0].item()
 
-    model = baselineQCQPMLP(
+    model = BranchedBaselineQCQPMLP(
         nbus=problem["nbus"],
         ngen=problem["ngen"],
         slack_imag_idx=slack_imag_idx

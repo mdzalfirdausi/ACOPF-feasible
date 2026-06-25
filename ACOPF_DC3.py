@@ -265,7 +265,7 @@ if __name__ == "__main__":
     train_dataset = TensorDataset(train_Pd, train_Qd)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    # 4. Model Instantiation & Parameter Configurations
+    # 4. Model Instantiation & Parameter Configurations 
     slack_imag_idx = (problem["a_ref"] == 1).nonzero(as_tuple=True)[0].item()
 
     model_dc3 = baselineQCQPMLP(
