@@ -318,7 +318,7 @@ print(f"  M_s, M_c shape  = {tuple(problem['M_s'].shape)}, {tuple(problem['M_c']
 print(f"  M_V shape  = {tuple(problem['M_v'].shape)}")
 
 total_samples=10000
-
+ 
 def gaussian_batch(base_tensor, batch_size, variation_std=0.05, clamp_min=None):
     """
     Create a batch of tensors with Gaussian random variations.
