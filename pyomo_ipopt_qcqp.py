@@ -188,10 +188,10 @@ if __name__ == "__main__":
     # 5. The Execution Loop
     total_start_time = time.time()
     
-    # Pyomo model generation inside a loop is CPU-heavy. 
-    # For initial testing, you may want to limit this to 50 or 100 samples.
+    # Safely assign eval_limit (preventing out-of-bounds errors)
     num_test_samples = test_Pd.shape[0] 
-    eval_limit = 1 # Change to num_test_samples for the full run
+    eval_limit = min(args.eval_limit, num_test_samples)
+    
     print(f"\nStarting Ipopt baseline evaluation over {eval_limit} samples...")
     for i in range(eval_limit):
         Pd_instance = problem_np["Pd"] #test_Pd[i]
