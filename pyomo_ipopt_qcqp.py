@@ -3,7 +3,7 @@ import numpy as np
 import scipy.sparse as sp
 import time
 import torch
-
+import argparse
 def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_imag_idx):
     """
     Formulates and solves the ACOPF QCQP problem for a single load instance using Pyomo and Ipopt.
@@ -134,9 +134,16 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
     return status, obj_val, solve_time, v_res, pg_res, qg_res
 
 if __name__ == "__main__":
+    # === Setup Command Line Arguments ===
+    parser = argparse.ArgumentParser(description="Evaluate ACOPF baseline using Pyomo and IPOPT.")
+    parser.add_argument('--case_name', type=str, required=True, help="Name of the grid case (e.g., pglib_opf_case300_ieee)")
+    parser.add_argument('--eval_limit', type=int, default=1, help="Number of instances to solve (default: 1)")
+    parser.add_argument('--total_samples', type=int, default=10000, help="Total samples in the loaded dataset (default: 10000)")
+    args = parser.parse_args()
+
     # 1. Load the Dataset
-    case_name = 'pglib_opf_case300_ieee'
-    total_samples = 10000
+    case_name = args.case_name
+    total_samples = args.total_samples
     dataset_path = f'./dataset/{case_name}_{total_samples}.pt'
     
     print(f"Loading dataset from {dataset_path}...")
