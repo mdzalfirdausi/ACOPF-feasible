@@ -30,40 +30,34 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
     smax2 = problem_dict["smax"]**2
     
     # 3. Define Variables with Bounds
-    # Bounding generators natively replaces the sigmoid mapping
     m.GEN = pyo.RangeSet(0, ngen - 1)
-    m.pg = pyo.Var(m.GEN, initialize=lambda m, i: (pmin[i] + pmax[i]) / 2.0, bounds=lambda m, i: (pmin[i], pmax[i]))
-    m.qg = pyo.Var(m.GEN, initialize=lambda m, i: (qmin[i] + qmax[i]) / 2.0, bounds=lambda m, i: (qmin[i], qmax[i]))
+    m.pg = pyo.Var(m.GEN, initialize=lambda m, i: float((pmin[i] + pmax[i]) / 2.0), bounds=lambda m, i: (float(pmin[i]), float(pmax[i])))
+    m.qg = pyo.Var(m.GEN, initialize=lambda m, i: float((qmin[i] + qmax[i]) / 2.0), bounds=lambda m, i: (float(qmin[i]), float(qmax[i])))
     
-    # Bounding voltage space replaces the tanh mapping
     m.BUS2 = pyo.RangeSet(0, 2 * nbus - 1)
-    # Note: Vmax here refers to the absolute bound of rectangular components
-    max_v_rect = np.max(problem_dict["Vmax"]) 
-    # Initialize Real to 1.0, Imaginary to 0.0
+    max_v_rect = float(np.max(problem_dict["Vmax"])) 
+    
     def v_init_rule(m, i):
-        if i < nbus:
-            return 1.0 # Real part
-        else:
-            return 0.0 # Imaginary part
+        return 1.0 if i < nbus else 0.0
     m.v = pyo.Var(m.BUS2, initialize=v_init_rule, bounds=(-max_v_rect, max_v_rect))
     
-    # Fix the imaginary part of the slack bus to 0 (Constraint 2m equivalent)
     m.v[slack_imag_idx].fix(0.0)
 
-    # Helper function for sparse quadratic forms: v^T * M * v
+    # Bulletproof quadratic form: strictly casts numpy data to Python floats
     def quad_form(matrix):
-        # Convert to COOrdinate format for efficient non-zero iteration
         M_coo = sp.coo_matrix(matrix)
-        return sum(M_coo.data[k] * m.v[M_coo.row[k]] * m.v[M_coo.col[k]] 
-                   for k in range(M_coo.nnz))
+        expr = 0.0
+        for k in range(M_coo.nnz):
+            expr += float(M_coo.data[k]) * m.v[int(M_coo.row[k])] * m.v[int(M_coo.col[k])]
+        return expr
 
-    # 4. Objective Function (Generation Cost)
+    # 4. Objective Function 
     c2 = problem_dict["c2"]
     c1 = problem_dict["c1"]
     c0 = problem_dict["c0"]
     
     def cost_rule(m):
-        return sum(c2[i] * m.pg[i]**2 + c1[i] * m.pg[i] + c0[i] for i in m.GEN)
+        return sum(float(c2[i]) * m.pg[i]**2 + float(c1[i]) * m.pg[i] + float(c0[i]) for i in m.GEN)
     m.cost = pyo.Objective(rule=cost_rule, sense=pyo.minimize)
 
     # 5. Constraints
@@ -73,14 +67,20 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
     # --- A. Nodal Power Balance Constraints ---
     for bus_i in range(nbus):
         # Active Power Balance
-        gen_p = sum(C_g[bus_i, g] * m.pg[g] for g in m.GEN if C_g[bus_i, g] != 0)
+        gen_p = 0.0
+        for g in m.GEN:
+            if C_g[bus_i, g] != 0:
+                gen_p += float(C_g[bus_i, g]) * m.pg[g]
         v_Mp_v = quad_form(problem_dict["M_p"][bus_i])
-        m.Constraints.add(gen_p - Pd_instance[bus_i] == v_Mp_v)
+        m.Constraints.add(gen_p - float(Pd_instance[bus_i]) == v_Mp_v)
         
         # Reactive Power Balance
-        gen_q = sum(C_g[bus_i, g] * m.qg[g] for g in m.GEN if C_g[bus_i, g] != 0)
+        gen_q = 0.0
+        for g in m.GEN:
+            if C_g[bus_i, g] != 0:
+                gen_q += float(C_g[bus_i, g]) * m.qg[g]
         v_Mq_v = quad_form(problem_dict["M_q"][bus_i])
-        m.Constraints.add(gen_q - Qd_instance[bus_i] == v_Mq_v)
+        m.Constraints.add(gen_q - float(Qd_instance[bus_i]) == v_Mq_v)
         
         # Voltage Magnitude Limits
         v_Mv_v = quad_form(problem_dict["M_v"][bus_i])
@@ -104,8 +104,6 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
         angmax_rad = float(problem_dict["angmax"][br])
         angmin_rad = float(problem_dict["angmin"][br])
         
-        # Only apply tan() constraints if bounds are physically tight (e.g. within -90 to 90 deg)
-        # Bypasses the tan(360) = 0 black hole
         if angmax_rad < np.pi/2 and angmin_rad > -np.pi/2:
             v_Mc_v = quad_form(problem_dict["M_c"][br])
             v_Ms_v = quad_form(problem_dict["M_s"][br])
