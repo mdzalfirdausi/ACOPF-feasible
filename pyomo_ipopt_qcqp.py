@@ -32,14 +32,20 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
     # 3. Define Variables with Bounds
     # Bounding generators natively replaces the sigmoid mapping
     m.GEN = pyo.RangeSet(0, ngen - 1)
-    m.pg = pyo.Var(m.GEN, initialize=pmin, bounds=lambda m, i: (pmin[i], pmax[i]))
-    m.qg = pyo.Var(m.GEN, initialize=qmin, bounds=lambda m, i: (qmin[i], qmax[i]))
+    m.pg = pyo.Var(m.GEN, initialize=lambda m, i: (pmin[i] + pmax[i]) / 2.0, bounds=lambda m, i: (pmin[i], pmax[i]))
+    m.qg = pyo.Var(m.GEN, initialize=lambda m, i: (qmin[i] + qmax[i]) / 2.0, bounds=lambda m, i: (qmin[i], qmax[i]))
     
     # Bounding voltage space replaces the tanh mapping
     m.BUS2 = pyo.RangeSet(0, 2 * nbus - 1)
     # Note: Vmax here refers to the absolute bound of rectangular components
     max_v_rect = np.max(problem_dict["Vmax"]) 
-    m.v = pyo.Var(m.BUS2, initialize=1.0, bounds=(-max_v_rect, max_v_rect))
+    # Initialize Real to 1.0, Imaginary to 0.0
+    def v_init_rule(m, i):
+        if i < nbus:
+            return 1.0 # Real part
+        else:
+            return 0.0 # Imaginary part
+    m.v = pyo.Var(m.BUS2, initialize=v_init_rule, bounds=(-max_v_rect, max_v_rect))
     
     # Fix the imaginary part of the slack bus to 0 (Constraint 2m equivalent)
     m.v[slack_imag_idx].fix(0.0)
@@ -126,7 +132,7 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
 
 if __name__ == "__main__":
     # 1. Load the Dataset
-    case_name = 'pglib_opf_case14_ieee'
+    case_name = 'pglib_opf_case300_ieee'
     total_samples = 10000
     dataset_path = f'./dataset/{case_name}_{total_samples}.pt'
     
@@ -155,12 +161,6 @@ if __name__ == "__main__":
     slack_imag_idx = int(np.where(problem_np["a_ref"] == 1)[0][0])
 
     # 4. Setup the Loop Iteration
-    # Pyomo model generation inside a loop is CPU-heavy. 
-    # For initial testing, you may want to limit this to 50 or 100 samples.
-    num_test_samples = test_Pd.shape[0] 
-    eval_limit = num_test_samples # Change to num_test_samples for the full run
-    
-    print(f"\nStarting Ipopt baseline evaluation over {eval_limit} samples...")
 
     # Data structures to capture benchmark metrics and physical variables
     metrics = {
@@ -177,10 +177,15 @@ if __name__ == "__main__":
 
     # 5. The Execution Loop
     total_start_time = time.time()
-
+    
+    # Pyomo model generation inside a loop is CPU-heavy. 
+    # For initial testing, you may want to limit this to 50 or 100 samples.
+    num_test_samples = test_Pd.shape[0] 
+    eval_limit = 1 # Change to num_test_samples for the full run
+    print(f"\nStarting Ipopt baseline evaluation over {eval_limit} samples...")
     for i in range(eval_limit):
-        Pd_instance = test_Pd[i]
-        Qd_instance = test_Qd[i]
+        Pd_instance = problem_np["Pd"] #test_Pd[i]
+        Qd_instance = problem_np["Qd"] #test_Qd[i]
         
         print(f"[{i+1}/{eval_limit}] Solving Instance...")
         
