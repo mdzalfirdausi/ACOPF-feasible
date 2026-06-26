@@ -315,7 +315,7 @@ if __name__ == "__main__":
     epochs = 10000
     # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
-    model_save_path = f"./model/best_fsnet_model_{case_name}_{epochs}epochs.pth"
+    model_save_path = f"./model/best_fsnet_MULTI_{case_name}_{epochs}epochs.pth"
 
     # 5. Optimization Loop Execution
     print("\nBeginning execution of parallelized training matrix loops for FSNet...")

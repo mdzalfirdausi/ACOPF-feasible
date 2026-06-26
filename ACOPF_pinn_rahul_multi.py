@@ -337,7 +337,7 @@ if __name__ == "__main__":
     epochs = 10000
     # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
-    model_save_path = f"./model/best_rahul_model_{case_name}_{epochs}epochs.pth"
+    model_save_path = f"./model/best_rahul_MULTI_{case_name}_{epochs}epochs.pth"
 
     # 5. Optimization Loop Execution
     print("\nBeginning execution of parallelized training matrix loops for Rahul KKT PINN...")
