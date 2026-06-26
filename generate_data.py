@@ -5,17 +5,24 @@ from numpy import zeros, arange, isscalar,diag, dot,eye, ix_, ones, r_, pi, flat
 from scipy.sparse import csr_matrix
 from numpy.linalg import solve
 import os
-
+import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+# === Setup Command Line Arguments ===
+parser = argparse.ArgumentParser(description="Generate dataset for ACOPF PINN.")
+parser.add_argument('--case_name', type=str, required=True, help="Name of the grid case (e.g., pglib_opf_case3_lmbd)")
+parser.add_argument('--samples', type=int, default=10000, help="Number of samples to generate (default: 10000)")
+args = parser.parse_args()
+
 # === Initialization ===
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dtype = torch.float32
 
-case_name = 'pglib_opf_case3_lmbd'
+# Use the parsed argument instead of a hardcoded string
+case_name = args.case_name 
 case_path = f'../excel_outputs/{case_name}.xlsx'
 case = pd.read_excel(case_path, sheet_name=['baseMVA','bus','gen','gencost','branch'])
 
@@ -317,7 +324,7 @@ print(f"  M_p, M_q shape  = {tuple(problem['M_p'].shape)}, {tuple(problem['M_q']
 print(f"  M_s, M_c shape  = {tuple(problem['M_s'].shape)}, {tuple(problem['M_c'].shape)}")
 print(f"  M_V shape  = {tuple(problem['M_v'].shape)}")
 
-total_samples=10000
+total_samples = args.samples
  
 def gaussian_batch(base_tensor, batch_size, variation_std=0.05, clamp_min=None):
     """
@@ -334,9 +341,6 @@ def gaussian_batch(base_tensor, batch_size, variation_std=0.05, clamp_min=None):
     return batch
 
 def generate_and_save_dataset(problem, total_samples=10000, save_path="acopf_problem_with_data.pt"):
-    """
-    Generates static samples and saves them INSIDE the problem dictionary.
-    """
     print(f"Generating {total_samples} static samples...")
     
     # Generate the full batch of demands (clamping Pd to 0, leaving Qd unclamped)
@@ -352,4 +356,4 @@ def generate_and_save_dataset(problem, total_samples=10000, save_path="acopf_pro
     print(f"Problem dictionary with {total_samples} samples successfully saved to {save_path}")
 
 # --- Execute Generation ---
-generate_and_save_dataset(problem, total_samples=total_samples, save_path=f"./dataset/{case_name}_{total_samples}.pt")    
+generate_and_save_dataset(problem, total_samples=total_samples, save_path=f"./dataset/{case_name}_{total_samples}.pt")
