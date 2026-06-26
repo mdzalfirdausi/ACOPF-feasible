@@ -68,10 +68,9 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
 
     # 5. Constraints
     m.Constraints = pyo.ConstraintList()
+    C_g = problem_dict["C_g"] 
     
-    C_g = problem_dict["C_g"] # Connection matrix
-    
-    # Nodal Power Balance (Real and Reactive)
+    # --- A. Nodal Power Balance Constraints ---
     for bus_i in range(nbus):
         # Active Power Balance
         gen_p = sum(C_g[bus_i, g] * m.pg[g] for g in m.GEN if C_g[bus_i, g] != 0)
@@ -83,24 +82,14 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
         v_Mq_v = quad_form(problem_dict["M_q"][bus_i])
         m.Constraints.add(gen_q - Qd_instance[bus_i] == v_Mq_v)
         
-        # Voltage Magnitude Limits (Bounds are constants, so pyo.inequality is safe here)
+        # Voltage Magnitude Limits
         v_Mv_v = quad_form(problem_dict["M_v"][bus_i])
-        vmin_val = float(Vmin2[bus_i])
-        vmax_val = float(Vmax2[bus_i])
-        m.Constraints.add(pyo.inequality(vmin_val, v_Mv_v, vmax_val))
-        
-        # Angle Difference Stability (Split into two constraints due to variable bounds)
-        v_Mc_v = quad_form(problem_dict["M_c"][bus_i])
-        v_Ms_v = quad_form(problem_dict["M_s"][bus_i])
-        tan_min = float(np.tan(problem_dict["angmin"][bus_i]))
-        tan_max = float(np.tan(problem_dict["angmax"][bus_i]))
-        
-        m.Constraints.add(tan_min * v_Mc_v <= v_Ms_v)
-        m.Constraints.add(v_Ms_v <= tan_max * v_Mc_v)
+        m.Constraints.add(pyo.inequality(float(Vmin2[bus_i]), v_Mv_v, float(Vmax2[bus_i])))
 
-    # Branch Thermal Limits (Apparent Power)
+    # --- B. Branch Constraints ---
     nbranch = problem_dict["M_pf"].shape[0]
     for br in range(nbranch):
+        # 1. Thermal Limits (Apparent Power)
         smax_val = float(smax2[br])
         
         p_from = quad_form(problem_dict["M_pf"][br])
@@ -110,6 +99,20 @@ def create_and_solve_acopf_ipopt(problem_dict, Pd_instance, Qd_instance, slack_i
         p_to = quad_form(problem_dict["M_pt"][br])
         q_to = quad_form(problem_dict["M_qt"][br])
         m.Constraints.add(p_to**2 + q_to**2 <= smax_val)
+
+        # 2. Angle Difference Stability (Safely Handled)
+        angmax_rad = float(problem_dict["angmax"][br])
+        angmin_rad = float(problem_dict["angmin"][br])
+        
+        # Only apply tan() constraints if bounds are physically tight (e.g. within -90 to 90 deg)
+        # Bypasses the tan(360) = 0 black hole
+        if angmax_rad < np.pi/2 and angmin_rad > -np.pi/2:
+            v_Mc_v = quad_form(problem_dict["M_c"][br])
+            v_Ms_v = quad_form(problem_dict["M_s"][br])
+            
+            m.Constraints.add(float(np.tan(angmin_rad)) * v_Mc_v <= v_Ms_v)
+            m.Constraints.add(v_Ms_v <= float(np.tan(angmax_rad)) * v_Mc_v)
+    
     # 6. Solve the Model
     solver = pyo.SolverFactory('ipopt')
     # Optional: Pass specific Ipopt tolerances (useful for non-convex QCQP)
