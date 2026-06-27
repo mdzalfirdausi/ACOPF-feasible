@@ -206,3 +206,4 @@ if __name__ == "__main__":
     
     np.savez(f"result/ipopt_baseline_{case_name}_{eval_limit}_instances.npz", **solutions, **metrics)
     
+    
