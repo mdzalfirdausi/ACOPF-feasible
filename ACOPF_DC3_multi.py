@@ -237,15 +237,11 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
     # 0. Hardware Device Discovery & Optimization
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print(f"CUDA Hardware Acceleration Active: {torch.cuda.get_device_name(0)}")
-    else:
-        device = torch.device("cpu")
-        max_threads = os.cpu_count() or 1
-        torch.set_num_threads(max_threads)
-        print(f"Running on CPU Profile. Thread threshold dynamically established at {max_threads} loops.")
-
+    if not torch.cuda.is_available():
+        raise RuntimeError("FATAL: CUDA is not available. Forcing exit to prevent CPU execution.")
+    device = torch.device("cuda")
+    print(f"Executing strictly on GPU: {torch.cuda.get_device_name(0)}")
+    
     # 1. Load Data
     case_name = 'pglib_opf_case14_ieee'
     total_samples = 10000
