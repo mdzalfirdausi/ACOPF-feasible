@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=acopf
-#SBATCH --output=/home/g202210120/projects/ACOPF-feasible/logs/%x_%j.out
-#SBATCH --error=/home/g202210120/projects/ACOPF-feasible/logs/%x_%j.err
+#SBATCH --output=/home/g202210120/projects/ACOPF-feasible/logs/%j_%x.out
+#SBATCH --error=/home/g202210120/projects/ACOPF-feasible/logs/%j_%x.err
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
