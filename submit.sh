@@ -9,6 +9,8 @@
 #SBATCH --mem=32G
 #SBATCH --partition=gpu_x450
 #SBATCH --gres=gpu:1
+#SBATCH --exclude=gpu0002
+##SBATCH --nodelist=gpu0003,gpu0004
 #SBATCH --chdir=/home/g202210120/projects/ACOPF-feasible
 
 # 1. Ensure a script was passed
@@ -36,4 +38,4 @@ echo "GPU Allocated: $CUDA_VISIBLE_DEVICES"
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA check failed before execution!'"
 
 # 5. Run the target script directly, passing ALL arguments ($@)
-srun python "$@"
+python "$@"
