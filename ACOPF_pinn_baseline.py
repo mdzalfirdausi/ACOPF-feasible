@@ -246,7 +246,7 @@ if __name__ == "__main__":
     }
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    epochs = 10000
+    epochs = 100
     # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
     model_save_path = f"./model/best_pinn_model_{case_name}_{epochs}epochs.pth"
