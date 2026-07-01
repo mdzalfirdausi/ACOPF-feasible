@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=acopf_ISS
-#SBATCH --output=/nfs/mfirdausi/redsea/ACOPF-feasible/logs/%j_%x.out
-#SBATCH --error=/nfs/mfirdausi/redsea/ACOPF-feasible/logs/%j_%x.err
+#SBATCH --output=logs/%j_%x.out
+#SBATCH --error=logs/%j_%x.err
 #SBATCH --partition=main
 #SBATCH --mem=160G
 #SBATCH --gres=gpu:1
@@ -21,8 +21,8 @@ mkdir -p ./model
 mkdir -p ./logs
 
 # 3. Environment Setup
-module load conda/25.08
-source activate pytorch
+# module load conda/25.08
+source ~/miniconda3/bin/activate pytorch
 
 # 4. Hardware/Environment Check
 echo "Job: $SLURM_JOB_NAME"
