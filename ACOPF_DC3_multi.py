@@ -290,10 +290,10 @@ if __name__ == "__main__":
 
     # --- UPDATED DC3 LOSS WEIGHTS ---
     loss_weights_dc3 = {
-        "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
-        "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
+        "primal_eq_p": 10.0,   # Matches baseline "eq_p"
+        "primal_eq_q": 10.0,   # Matches baseline "eq_q"
         "primal_ineq": 1.0,      # Soft penalty on inequality constraints
-        "obj": 0.0,             # Generation cost weight
+        "obj": 1.0,             # Generation cost weight
         "dc3_corr": 50.0         # Heavy weight pushing predictions towards the repaired targets
     }
 

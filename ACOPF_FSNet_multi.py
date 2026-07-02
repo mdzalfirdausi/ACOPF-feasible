@@ -307,10 +307,10 @@ if __name__ == "__main__":
 
     # --- UPDATED FSNET LOSS WEIGHTS ---
     loss_weights_fsnet = {
-        "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
-        "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
+        "primal_eq_p": 10.0,   # Matches baseline "eq_p"
+        "primal_eq_q": 10.0,   # Matches baseline "eq_q"
         "primal_ineq": 1.0,      # Matches baseline inequalities
-        "obj": 0.0              # Generation cost weight matching baseline
+        "obj": 1.0              # Generation cost weight matching baseline
     }
 
     epochs = 10000

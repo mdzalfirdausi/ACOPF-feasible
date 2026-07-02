@@ -347,10 +347,10 @@ if __name__ == "__main__":
 
     # --- HARD KKT LOSS WEIGHTS ---
     loss_weights_kkt = {
-        "primal_eq_p": 1000.0,   
-        "primal_eq_q": 1000.0,   
+        "primal_eq_p": 10.0,   
+        "primal_eq_q": 10.0,   
         "primal_ineq": 1.0,      
-        "obj": 0.0,
+        "obj": 1.0,
         "cs": 1.0,               # Complementary slackness weight
         "dual_feas": 1.0         # Enforcing positive multipliers
     }

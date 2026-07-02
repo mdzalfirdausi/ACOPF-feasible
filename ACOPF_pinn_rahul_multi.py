@@ -321,12 +321,12 @@ if __name__ == "__main__":
     ).to(device)
 
     loss_weights_rahul = {
-    "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
-    "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
+    "primal_eq_p": 10.0,   # Matches baseline "eq_p"
+    "primal_eq_q": 10.0,   # Matches baseline "eq_q"
     "primal_ineq": 1.0,      # Matches baseline "thermal", "ang", "v"
     "cs": 1.0,               # KKT Complementary Slackness
     "dual_feas": 1.0,        # KKT Dual Feasibility
-    "stationarity": 0.01     # KKT Stationarity (Implicitly handles your objective cost)
+    "stationarity": 1.0     # KKT Stationarity (Implicitly handles your objective cost)
     }
 
     optimizer_rahul = optim.Adam(model_rahul.parameters(), lr=1e-3)
