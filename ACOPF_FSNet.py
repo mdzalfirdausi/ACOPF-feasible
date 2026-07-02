@@ -293,7 +293,7 @@ if __name__ == "__main__":
         "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
         "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
         "primal_ineq": 1.0,      # Matches baseline inequalities
-        "obj": 0.01              # Generation cost weight matching baseline
+        "obj": 0.0              # Generation cost weight matching baseline
     }
 
     epochs = 10000

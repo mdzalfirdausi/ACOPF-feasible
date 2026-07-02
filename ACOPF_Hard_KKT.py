@@ -350,12 +350,12 @@ if __name__ == "__main__":
         "primal_eq_p": 1000.0,   
         "primal_eq_q": 1000.0,   
         "primal_ineq": 1.0,      
-        "obj": 0.01,
+        "obj": 0.0,
         "cs": 1.0,               # Complementary slackness weight
         "dual_feas": 1.0         # Enforcing positive multipliers
     }
 
-    epochs = 10
+    epochs = 10000
     best_val_loss = float('inf')
     # Generate a timestamp string like '20260702_090602' (YYYYMMDD_HHMMSS)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

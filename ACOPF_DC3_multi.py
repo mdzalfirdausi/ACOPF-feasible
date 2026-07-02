@@ -293,7 +293,7 @@ if __name__ == "__main__":
         "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
         "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
         "primal_ineq": 1.0,      # Soft penalty on inequality constraints
-        "obj": 0.01,             # Generation cost weight
+        "obj": 0.0,             # Generation cost weight
         "dc3_corr": 50.0         # Heavy weight pushing predictions towards the repaired targets
     }
 
