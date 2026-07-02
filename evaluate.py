@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ACOPF Model Evaluation Script
-Generates metrics for DC3-style comparison table
+Generates metrics for DC3-style comparison table and rigorous performance plots.
 """
 
 import time
@@ -11,6 +11,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 
 # 1. IMPORT YOUR MODEL CLASSES HERE
 from ACOPF_pinn_baseline import baselineQCQPMLP
@@ -30,6 +32,7 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
     all_objs = []
     all_max_eq, all_mean_eq = [], []
     all_max_ineq, all_mean_ineq = [], []
+    all_mae_v, all_mae_pg, all_mae_qg = [], [], []
     
     # Pre-extract bounds to avoid redundant batch expansions
     smax = problem["smax"].unsqueeze(0)
@@ -43,8 +46,15 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
     qmin = problem["qmin"].unsqueeze(0)
     c2, c1, c0 = problem["c2"].unsqueeze(0), problem["c1"].unsqueeze(0), problem["c0"].unsqueeze(0)
     
+    # NEW: Store system-level metrics for plotting
+    plot_data = {
+        "ipopt_costs": [], 
+        "nn_costs": [], 
+        "max_violations": []
+    }
+
     with torch.no_grad():
-        for Pd_batch, Qd_batch in test_loader:
+        for Pd_batch, Qd_batch, v_gt, pg_gt, qg_gt in test_loader:
             B = Pd_batch.shape[0]
             total_samples += B
             
@@ -53,20 +63,28 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             
             # Handle different forward signatures
             if model_name == "Rahul Model":
-                # Rahul model returns 15 variables
                 outputs = model(Pd_batch, Qd_batch)
                 v, pg, qg = outputs[0], outputs[1], outputs[2]
             else:
-                # Baseline, DC3, FSNet expect problem dict and return 3 variables
                 v, pg, qg = model(Pd_batch, Qd_batch, problem)
                 
-            end_time = time.perf_counter()
-            total_time += (end_time - start_time)
+            total_time += (time.perf_counter() - start_time)
 
-            # --- Objective Value ---
-            cost_per_gen = c2.expand(B,-1) * (pg ** 2) + c1.expand(B,-1) * pg + c0.expand(B,-1)
-            obj = cost_per_gen.sum(dim=1)
+            # Distance from Ground Truth (MAE)
+            all_mae_v.append(torch.abs(v - v_gt).mean().item())
+            all_mae_pg.append(torch.abs(pg - pg_gt).mean().item())
+            all_mae_qg.append(torch.abs(qg - qg_gt).mean().item())
+
+            # --- Objective Value (NN and IPOPT) ---
+            cost_nn = c2.expand(B,-1) * (pg ** 2) + c1.expand(B,-1) * pg + c0.expand(B,-1)
+            cost_ipopt = c2.expand(B,-1) * (pg_gt ** 2) + c1.expand(B,-1) * pg_gt + c0.expand(B,-1)
+            
+            obj = cost_nn.sum(dim=1)
             all_objs.extend(obj.cpu().numpy())
+            
+            # Store for plotting
+            plot_data["nn_costs"].extend(cost_nn.sum(dim=1).cpu().numpy())
+            plot_data["ipopt_costs"].extend(cost_ipopt.sum(dim=1).cpu().numpy())
 
             # --- Evaluate Quadratic Forms ---
             vp = quad_batch_stack(v, problem["M_p"])
@@ -108,17 +126,31 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             
             all_max_ineq.append(ineq_violations.max().item())
             all_mean_ineq.append(ineq_violations.mean().item())
+            
+            # Combine Eq and Ineq to find the absolute worst violation per sample for plotting
+            batch_max_eq = eq_violations.max(dim=1).values
+            batch_max_ineq = ineq_violations.max(dim=1).values
+            batch_max_viol = torch.max(batch_max_eq, batch_max_ineq)
+            plot_data["max_violations"].extend(batch_max_viol.cpu().numpy())
 
-    # --- Aggregate Metrics ---
+    # --- Aggregate Metrics for Table ---
     metrics = {
-        "Obj. Value": f"{np.mean(all_objs):.2f} ({np.std(all_objs):.2f})",
-        "Max Eq.": f"{max(all_max_eq):.4f} ({np.std(all_max_eq):.4f})",
-        "Mean Eq.": f"{np.mean(all_mean_eq):.4f} ({np.std(all_mean_eq):.4f})",
-        "Max Ineq.": f"{max(all_max_ineq):.4f} ({np.std(all_max_ineq):.4f})",
-        "Mean Ineq.": f"{np.mean(all_mean_ineq):.4f} ({np.std(all_mean_ineq):.4f})",
-        "Time (s)": f"{(total_time / total_samples):.6f} (0.0000)"
+        "Obj. Value": f"{np.mean(all_objs):.2f}",
+        "Max Eq.": f"{max(all_max_eq):.4f}",
+        "Mean Eq.": f"{np.mean(all_mean_eq):.4f}",
+        "Max Ineq.": f"{max(all_max_ineq):.4f}",
+        "MAE v": np.mean(all_mae_v),
+        "MAE pg": np.mean(all_mae_pg),
+        "MAE qg": np.mean(all_mae_qg),
+        "Time (s)": total_time / total_samples
     }
-    return metrics
+    
+    # Convert plot lists to numpy arrays
+    plot_data["nn_costs"] = np.array(plot_data["nn_costs"])
+    plot_data["ipopt_costs"] = np.array(plot_data["ipopt_costs"])
+    plot_data["max_violations"] = np.array(plot_data["max_violations"])
+    
+    return metrics, plot_data
 
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
@@ -140,13 +172,38 @@ if __name__ == "__main__":
     test_Pd = problem["Pd_all"][test_start:].to(device)
     test_Qd = problem["Qd_all"][test_start:].to(device)
 
+    # Load IPOPT Ground Truth for the Test Set
+    gt_path = f'./result/ipopt_baseline_{case_name}_{actual_total_samples - test_start}_instances.npz'
+    try:
+        gt_data = np.load(gt_path)
+    except FileNotFoundError:
+        print(f"CRITICAL: Ground truth file not found at {gt_path}. Required for gap plotting.")
+        sys.exit(1)
+
+    # Filter out failed IPOPT solves
+    status = gt_data['status']
+    mask = np.array(['ok' in s.lower() or 'optimal' in s.lower() for s in status])
+    print(f"Total Test Instances: {len(mask)} | Successful IPOPT Solves: {mask.sum()}")
+
+    # Extract ground truth variables (only for successful solves)
+    test_v_gt = torch.tensor(gt_data['v_optimal'][mask], dtype=torch.float32).to(device)
+    test_pg_gt = torch.tensor(gt_data['pg_optimal'][mask], dtype=torch.float32).to(device)
+    test_qg_gt = torch.tensor(gt_data['qg_optimal'][mask], dtype=torch.float32).to(device)
+    
+    # Apply mask to NN inputs to ensure alignment
+    test_Pd = test_Pd[mask]
+    test_Qd = test_Qd[mask]
+
+    assert test_Pd.shape[0] == test_v_gt.shape[0], "Dataset size mismatch between PINN test set and IPOPT baseline!"
+
     # Deploy matrices to device
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
             problem[key] = value.to(device)
 
+    # Build DataLoader with 5 variables
     batch_size = 1024 
-    test_dataset = TensorDataset(test_Pd, test_Qd)
+    test_dataset = TensorDataset(test_Pd, test_Qd, test_v_gt, test_pg_gt, test_qg_gt)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     slack_imag_idx = (problem["a_ref"] == 1).nonzero(as_tuple=True)[0].item()
@@ -154,7 +211,7 @@ if __name__ == "__main__":
     ngen = problem["ngen"]
     nbranch = problem["nbranch"]
 
-    # 3. Model Registry - Map your files to your classes here!
+    # 3. Model Registry
     models_to_evaluate = {
         "PINN Baseline": {
             "path": "./model/pinn_model_pglib_opf_case14_ieee_10000epochs.pth",
@@ -175,19 +232,102 @@ if __name__ == "__main__":
     }
 
     # 4. Evaluation Loop
-    results = {}
-    print("\n" + "="*85)
-    print(f"{'Method':<15} | {'Obj. Value':<12} | {'Max Eq.':<12} | {'Mean Eq.':<12} | {'Max Ineq.':<12} | {'Time (s)'}")
-    print("-" * 85)
+    results_list = []
+    plot_artifacts = {}
 
     for model_name, config in models_to_evaluate.items():
         model = config["class"]
-        model.load_state_dict(torch.load(config["path"], map_location=device, weights_only=True))
+        try:
+            model.load_state_dict(torch.load(config["path"], map_location=device, weights_only=True))
+            metrics, plot_data = evaluate_model(model, model_name, test_loader, problem, device)
+            
+            metrics["Model"] = model_name
+            results_list.append(metrics)
+            plot_artifacts[model_name] = plot_data
+            
+        except Exception as e:
+            print(f"Skipping {model_name} due to error: {e}")
+
+    # Display as Pandas DataFrame
+    df_results = pd.DataFrame(results_list)
+    df_results = df_results[["Model", "Obj. Value", "Max Eq.", "Mean Eq.", "Max Ineq.", "MAE v", "MAE pg", "MAE qg", "Time (s)"]]
+    print("\n--- MODEL PERFORMANCE METRICS ---")
+    try:
+        from IPython.display import display
+        display(df_results)
+    except ImportError:
+        print(df_results.to_string())
+
+    # =========================================================================
+    # PLOTTING SECTION
+    # =========================================================================
+    print("\nGenerating rigorous validation plots...")
+
+    # -------------------------------------------------------------
+    # PLOT 2: Max Physical Violations (Sorted Error Curve - 2x2 Grid)
+    # -------------------------------------------------------------
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    axes = axes.flatten()
+
+    for i, model_name in enumerate(models_to_evaluate.keys()):
+        if model_name in plot_artifacts:
+            ax = axes[i]
+            viols = plot_artifacts[model_name]["max_violations"]
+            
+            # Sort the violations to create a clean curve
+            sorted_viols = np.sort(viols)
+            
+            # Plot the sorted violations
+            ax.scatter(range(len(sorted_viols)), sorted_viols, alpha=0.6, s=15, color='red')
+            
+            # Formatting (Log Scale is crucial here)
+            ax.set_yscale('log')
+            ax.axhline(y=1e-4, color='k', linestyle='--', linewidth=2, label='Tolerance (1e-4)')
+            
+            ax.set_title(f"{model_name}: Physical Feasibility")
+            ax.set_xlabel("Sample Index (Sorted by Error)")
+            ax.set_ylabel("Max Constraint Violation (p.u.) [Log Scale]")
+            ax.grid(True, linestyle='--', alpha=0.6)
+            ax.legend(loc='upper left')
+
+    plt.tight_layout()
+    plt.savefig("plot/sorted_error_curves.pdf", format="pdf", bbox_inches="tight")
+    plt.show()  
+
+    # -------------------------------------------------------------
+    # PLOT 3: Distribution of Maximum Physical Violations (Boxplot)
+    # -------------------------------------------------------------
+    model_names = []
+    all_model_viols = []
+
+    for model_name in models_to_evaluate.keys():
+        if model_name in plot_artifacts:
+            model_names.append(model_name)
+            viols = plot_artifacts[model_name]["max_violations"]
+            viols_safe = np.clip(viols, a_min=1e-10, a_max=None) 
+            all_model_viols.append(viols_safe)
+
+    if all_model_viols:
+        plt.figure(figsize=(10, 6))
         
-        metrics = evaluate_model(model, model_name, test_loader, problem, device)
-        results[model_name] = metrics
+        box = plt.boxplot(all_model_viols, patch_artist=True)
+        # Safely apply labels regardless of matplotlib version
+        plt.xticks(ticks=range(1, len(model_names) + 1), labels=model_names)
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'] 
+        for patch, color in zip(box['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.6)
+
+        plt.yscale('log')
+        plt.axhline(y=1e-4, color='r', linestyle='--', linewidth=2, label='Acceptable Solver Tolerance (1e-4)')
         
-        # Print row
-        print(f"{model_name:<15} | {metrics['Obj. Value']:<12} | {metrics['Max Eq.']:<12} | {metrics['Mean Eq.']:<12} | {metrics['Max Ineq.']:<12} | {metrics['Time (s)']}")
-    
-    print("="*85 + "\n")
+        plt.title("Distribution of Maximum Physical Violations Across Models", fontsize=14)
+        plt.ylabel("Max Constraint Violation (p.u.) [Log Scale]", fontsize=12)
+        plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+        plt.legend(fontsize=12, loc='upper left')
+        
+        plt.tight_layout()
+        plt.savefig("plot/violation_boxplots.pdf", format="pdf", bbox_inches="tight")
+        plt.show()
+    else:
+        print("No violation data available to plot.")
