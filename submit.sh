@@ -2,7 +2,7 @@
 #SBATCH --job-name=acopf
 #SBATCH --output=/home/g202210120/projects/ACOPF-feasible/logs/%j_%x.out
 #SBATCH --error=/home/g202210120/projects/ACOPF-feasible/logs/%j_%x.err
-#SBATCH --time=01:00:00
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8

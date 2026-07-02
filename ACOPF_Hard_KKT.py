@@ -38,7 +38,8 @@ class HardKKT_QCQPMLP(nn.Module):
         self.num_duals = (2 * nbus) + (2 * nbranch) + (2 * nbranch) + (2 * nbus) + (4 * ngen)
         
         out_dim = self.out_dim_v + self.out_dim_g + self.num_duals
-
+        #       =       2B       +     2G         + 2B+2L+2L+2B+4G     
+        #       =       6B       +     6G         + 4L
         # Core MLP Matrix Layer Sequence
         self.net = nn.Sequential(
             nn.Linear(self.in_dim, hidden), nn.ReLU(),
