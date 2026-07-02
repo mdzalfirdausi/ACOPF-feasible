@@ -3,6 +3,7 @@
 ACOPF FSNet (Feasibility-Seeking Neural Network) Training Script
 Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
 """
+from datetime import datetime
 import time
 import sys
 import torch
@@ -298,7 +299,8 @@ if __name__ == "__main__":
     epochs = 10000
     # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
-    model_save_path = f"./model/best_fsnet_model_{case_name}_{epochs}epochs.pth"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_save_path = f"./model/best_fsnet_model_{case_name}_{epochs}epochs_{timestamp}.pth"
 
     # 5. Optimization Loop Execution
     print("\nBeginning execution of parallelized training matrix loops for FSNet...")

@@ -3,7 +3,7 @@
 ACOPF Unsupervised Baseline PINN Training Script
 Optimized for Intel i7-1255U / CUDA Acceleration
 """
-
+from datetime import datetime
 import os
 import time
 import sys
@@ -261,7 +261,8 @@ if __name__ == "__main__":
     epochs = 10000
     # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
-    model_save_path = f"./model/best_pinn_MULTI_{case_name}_{epochs}epochs.pth"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_save_path = f"./model/best_pinn_MULTI_{case_name}_{epochs}epochs_{timestamp}.pth"
 
     # 5. Optimization Loop Execution
     start_time = time.time()

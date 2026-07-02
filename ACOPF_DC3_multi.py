@@ -3,7 +3,7 @@
 ACOPF DC3 (Deep Constraint Completion & Correction) Training Script
 Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
 """
-import os
+from datetime import datetime
 import time
 import sys
 import torch
@@ -300,7 +300,8 @@ if __name__ == "__main__":
     epochs = 10000
     # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
-    model_save_path = f"./model/best_dc3_MULTI_{case_name}_{epochs}epochs.pth"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_save_path = f"./model/best_dc3_MULTI_{case_name}_{epochs}epochs_{timestamp}.pth"
 
     # 5. Optimization Loop Execution
     print("\nBeginning execution of parallelized training matrix loops for DC3...")

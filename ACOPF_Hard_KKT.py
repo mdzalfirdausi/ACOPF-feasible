@@ -6,6 +6,7 @@ Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
 Based on model_2_Hard_KKT.pdf: 
 Predicts Primal & Duals -> Unrolls L_rho gradient descent -> Computes KKT Physics Losses
 """
+from datetime import datetime
 import time
 import sys
 import torch
@@ -354,9 +355,11 @@ if __name__ == "__main__":
         "dual_feas": 1.0         # Enforcing positive multipliers
     }
 
-    epochs = 10000
+    epochs = 10
     best_val_loss = float('inf')
-    model_save_path = f"./model/best_hardkkt_model_{case_name}_{epochs}epochs.pth"
+    # Generate a timestamp string like '20260702_090602' (YYYYMMDD_HHMMSS)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_save_path = f"./model/best_hardkkt_{case_name}_{epochs}epochs_{timestamp}.pth"
 
     # 5. Optimization Loop Execution
     print("\nBeginning execution of parallelized training matrix loops for Hard KKT...")
