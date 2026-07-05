@@ -192,7 +192,7 @@ if __name__ == "__main__":
         print("Running on CPU Profile. Thread threshold established at 12 loops.")
 
     # 1. Load Data
-    case_name = 'pglib_opf_case14_ieee'
+    case_name = 'pglib_opf_case73_ieee_rts'
     total_samples = 10000
     dataset_path = f'./dataset/{case_name}_{total_samples}.pt'
     
