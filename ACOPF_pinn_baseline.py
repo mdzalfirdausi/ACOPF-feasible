@@ -242,7 +242,7 @@ if __name__ == "__main__":
         "thermal": 1.0,
         "ang": 1.0,
         "v": 1.0,
-        "obj": 1.0
+        "obj": 0.1
     }
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
