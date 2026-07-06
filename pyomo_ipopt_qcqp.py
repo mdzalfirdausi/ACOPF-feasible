@@ -101,7 +101,7 @@ def build_acopf_model(problem_dict, slack_imag_idx):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate ACOPF baseline using Pyomo and IPOPT.")
     parser.add_argument('--case_name', type=str, required=True, help="Name of the grid case")
-    parser.add_argument('--eval_limit', type=int, default=1, help="Number of instances to solve")
+    parser.add_argument('--eval_limit', type=int, default=1000, help="Number of instances to solve")
     parser.add_argument('--total_samples', type=int, default=10000, help="Total samples in the loaded dataset")
     args = parser.parse_args()
 
