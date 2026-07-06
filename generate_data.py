@@ -18,9 +18,13 @@ parser.add_argument('--samples', type=int, default=10000, help="Number of sample
 args = parser.parse_args()
 
 # === Initialization ===
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dtype = torch.float32
-
+device = torch.device("cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+dtype = torch.float64 
+torch.set_default_dtype(torch.float64)
+# dtype = torch.float32
+torch.manual_seed(42)
+np.random.seed(42)
 # Use the parsed argument instead of a hardcoded string
 case_name = args.case_name 
 case_path = f'../excel_outputs/{case_name}.xlsx'
