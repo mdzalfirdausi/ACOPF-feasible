@@ -246,7 +246,7 @@ if __name__ == "__main__":
     }
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    epochs = 100
+    epochs = 10000
     # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
