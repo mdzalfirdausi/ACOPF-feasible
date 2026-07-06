@@ -13,6 +13,8 @@ import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 
+torch.set_default_dtype(torch.float64)
+
 # --- MODEL DEFINITION ---
 class baselineQCQPMLP(nn.Module):
     """
@@ -227,17 +229,17 @@ if __name__ == "__main__":
     print(f"Problem Geometry Linked -> Matrix Samples: {actual_total_samples}")
     
     # Slice arrays and ensure deployment to the designated target device
-    train_Pd = problem["Pd_all"][:train_size].to(device)
-    train_Qd = problem["Qd_all"][:train_size].to(device)
+    train_Pd = problem["Pd_all"][:train_size].to(device, dtype=torch.float64)
+    train_Qd = problem["Qd_all"][:train_size].to(device, dtype=torch.float64)
 
     # --- Slice VAL arrays and deploy to the target device ---
-    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device)
-    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device)
+    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device, dtype=torch.float64)
+    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device, dtype=torch.float64)
 
     # Transition background system tensors to matching target device
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
-            problem[key] = value.to(device)
+            problem[key] = value.to(device, dtype=torch.float64)
 
     # 3. Setup Dataset Pipeline
     batch_size = 1024 
@@ -251,7 +253,7 @@ if __name__ == "__main__":
         nbus=problem["nbus"],
         ngen=problem["ngen"],
         slack_imag_idx=slack_imag_idx
-    ).to(device)
+    ).to(device, dtype=torch.float64)
 
     loss_weights = {
         "eq_p": 1000.0,
