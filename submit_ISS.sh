@@ -34,4 +34,4 @@ echo "GPU Allocated: $CUDA_VISIBLE_DEVICES"
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA check failed before execution!'"
 
 # 5. Run the target script directly, passing ALL arguments ($@)
-python "$@"
+python -u "$@"
