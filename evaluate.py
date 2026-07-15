@@ -55,6 +55,10 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
 
     with torch.no_grad():
         for Pd_batch, Qd_batch, v_gt, pg_gt, qg_gt in test_loader:
+            # Force all inputs and ground truths to float32 to prevent any mismatch
+            Pd_batch, Qd_batch = Pd_batch.float(), Qd_batch.float()
+            v_gt, pg_gt, qg_gt = v_gt.float(), pg_gt.float(), qg_gt.float()
+            
             B = Pd_batch.shape[0]
             total_samples += B
             
@@ -169,8 +173,8 @@ if __name__ == "__main__":
     val_size = int(0.1 * actual_total_samples)
     test_start = train_size + val_size
 
-    test_Pd = problem["Pd_all"][test_start:].to(device)
-    test_Qd = problem["Qd_all"][test_start:].to(device)
+    test_Pd = problem["Pd_all"][test_start:].to(device, dtype=torch.float32)
+    test_Qd = problem["Qd_all"][test_start:].to(device, dtype=torch.float32)
 
     # Load IPOPT Ground Truth for the Test Set
     gt_path = f'./result/ipopt_baseline_{case_name}_{actual_total_samples - test_start}_instances.npz'
@@ -199,7 +203,11 @@ if __name__ == "__main__":
     # Deploy matrices to device
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
-            problem[key] = value.to(device)
+            # Cast floating-point tensors to float32, leave integer tensors (like indices) alone
+            if value.is_floating_point():
+                problem[key] = value.to(device, dtype=torch.float32)
+            else:
+                problem[key] = value.to(device)
 
     # Build DataLoader with 5 variables
     batch_size = 1024 
@@ -239,8 +247,8 @@ if __name__ == "__main__":
         model = config["class"]
         try:
             model.load_state_dict(torch.load(config["path"], map_location=device, weights_only=True))
+            model = model.to(device).float() 
             metrics, plot_data = evaluate_model(model, model_name, test_loader, problem, device)
-            
             metrics["Model"] = model_name
             results_list.append(metrics)
             plot_artifacts[model_name] = plot_data
@@ -250,7 +258,10 @@ if __name__ == "__main__":
 
     # Display as Pandas DataFrame
     df_results = pd.DataFrame(results_list)
-    df_results = df_results[["Model", "Obj. Value", "Max Eq.", "Mean Eq.", "Max Ineq.", "MAE v", "MAE pg", "MAE qg", "Time (s)"]]
+    if not df_results.empty:
+        df_results = df_results[["Model", "Obj. Value", "Max Eq.", "Mean Eq.", "Max Ineq.", "MAE v", "MAE pg", "MAE qg", "Time (s)"]]
+    else:
+        print("WARNING: No models were successfully evaluated. DataFrame is empty.")
     print("\n--- MODEL PERFORMANCE METRICS ---")
     try:
         from IPython.display import display
