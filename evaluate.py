@@ -3,7 +3,9 @@
 ACOPF Model Evaluation Script
 Generates metrics for DC3-style comparison table and rigorous performance plots.
 """
-
+import os
+# Prevent OpenMP runtime crash on Windows Conda environments
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import time
 import sys
 import torch
@@ -303,7 +305,7 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.savefig("plot/sorted_error_curves.pdf", format="pdf", bbox_inches="tight")
-    plt.show()  
+    # plt.show()  
 
     # -------------------------------------------------------------
     # PLOT 3: Distribution of Maximum Physical Violations (Boxplot)
@@ -339,6 +341,6 @@ if __name__ == "__main__":
         
         plt.tight_layout()
         plt.savefig("plot/violation_boxplots.pdf", format="pdf", bbox_inches="tight")
-        plt.show()
+        # plt.show()
     else:
         print("No violation data available to plot.")
