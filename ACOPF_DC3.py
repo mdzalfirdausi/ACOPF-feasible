@@ -3,6 +3,7 @@
 ACOPF DC3 (Deep Constraint Completion & Correction) Training Script
 Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
 """
+import argparse
 from datetime import datetime
 import time
 import sys
@@ -221,6 +222,21 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
 
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
+    # --- ARGUMENT PARSING ---
+    parser = argparse.ArgumentParser(description="ACOPF Unsupervised Baseline PINN Training")
+    parser.add_argument(
+        "--case_name", 
+        type=str, 
+        required=True,
+        help="Name of the grid case topology (without _<samples>.pt)"
+    )
+    parser.add_argument(
+        "--epochs", 
+        type=int, 
+        required=True,
+        help="Number of training epochs"
+    )
+    args = parser.parse_args()
     # 0. Hardware Device Discovery & Optimization
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -231,7 +247,7 @@ if __name__ == "__main__":
         print("Running on CPU Profile. Thread threshold established at 12 loops.")
 
     # 1. Load Data
-    case_name = 'pglib_opf_case14_ieee'
+    case_name = args.case_name
     total_samples = 10000
     dataset_path = f'./dataset/{case_name}_{total_samples}.pt'
     
@@ -285,7 +301,7 @@ if __name__ == "__main__":
         "dc3_corr": 50.0         # Heavy weight pushing predictions towards the repaired targets
     }
 
-    epochs = 10000
+    epochs = args.epochs
     # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
