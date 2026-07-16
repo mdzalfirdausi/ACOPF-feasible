@@ -6,6 +6,7 @@ Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
 Based on model_2_Hard_KKT.pdf: 
 Predicts Primal & Duals -> Unrolls L_rho gradient descent -> Computes KKT Physics Losses
 """
+import argparse
 from datetime import datetime
 import time
 import sys
@@ -294,6 +295,21 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
 
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
+    # --- ARGUMENT PARSING ---
+    parser = argparse.ArgumentParser(description="ACOPF Unsupervised Baseline PINN Training")
+    parser.add_argument(
+        "--case_name", 
+        type=str, 
+        required=True,
+        help="Name of the grid case topology (without _<samples>.pt)"
+    )
+    parser.add_argument(
+        "--epochs", 
+        type=int, 
+        required=True,
+        help="Number of training epochs"
+    )
+    args = parser.parse_args()
     # 0. Hardware Device Discovery & Optimization
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -304,7 +320,7 @@ if __name__ == "__main__":
         print("Running on CPU Profile. Thread threshold established at 12 loops.")
 
     # 1. Load Data
-    case_name = 'pglib_opf_case14_ieee'
+    case_name = args.case_name
     total_samples = 10000
     dataset_path = f'./dataset/{case_name}_{total_samples}.pt'
     
@@ -355,7 +371,7 @@ if __name__ == "__main__":
         "dual_feas": 1.0         # Enforcing positive multipliers
     }
 
-    epochs = 10000
+    epochs = args.epochs
     best_val_loss = float('inf')
     # Generate a timestamp string like '20260702_090602' (YYYYMMDD_HHMMSS)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
