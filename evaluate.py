@@ -141,14 +141,15 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
 
     # --- Aggregate Metrics for Table ---
     metrics = {
-        "Obj. Value": f"{np.mean(all_objs):.2f}",
-        "Max Eq.": f"{max(all_max_eq):.4f}",
-        "Mean Eq.": f"{np.mean(all_mean_eq):.4f}",
-        "Max Ineq.": f"{max(all_max_ineq):.4f}",
+        "Obj. Value": f"{np.mean(all_objs):.2f} ({np.std(all_objs):.2f})",
+        "Max Eq.": f"{np.max(all_max_eq):.4f}",
+        "Mean Eq.": f"{np.mean(all_mean_eq):.4f} ({np.std(all_mean_eq):.4f})",
+        "Max Ineq.": f"{np.max(all_max_ineq):.4f}",
+        "Mean Ineq.": f"{np.mean(all_mean_ineq):.4f} ({np.std(all_mean_ineq):.4f})",
         "MAE v": np.mean(all_mae_v),
         "MAE pg": np.mean(all_mae_pg),
         "MAE qg": np.mean(all_mae_qg),
-        "Time (s)": total_time / total_samples
+        "Time (s)": f"{total_time / total_samples:.6f}"
     }
     
     # Convert plot lists to numpy arrays
@@ -261,7 +262,7 @@ if __name__ == "__main__":
     # Display as Pandas DataFrame
     df_results = pd.DataFrame(results_list)
     if not df_results.empty:
-        df_results = df_results[["Model", "Obj. Value", "Max Eq.", "Mean Eq.", "Max Ineq.", "MAE v", "MAE pg", "MAE qg", "Time (s)"]]
+        df_results = df_results[["Model", "Obj. Value", "Max Eq.", "Mean Eq.", "Max Ineq.", "Mean Ineq.", "MAE v", "MAE pg", "MAE qg", "Time (s)"]]
     else:
         print("WARNING: No models were successfully evaluated. DataFrame is empty.")
     print("\n--- MODEL PERFORMANCE METRICS ---")
