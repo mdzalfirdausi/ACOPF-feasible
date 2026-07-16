@@ -238,18 +238,22 @@ if __name__ == "__main__":
 
     print(f"Problem Geometry Linked -> Matrix Samples: {actual_total_samples}")
     
-    # Slice arrays and ensure deployment to the designated target device
-    train_Pd = problem["Pd_all"][:train_size].to(device)
-    train_Qd = problem["Qd_all"][:train_size].to(device)
+    # Slice arrays and ensure deployment to the designated target device in float64
+    train_Pd = problem["Pd_all"][:train_size].to(device=device, dtype=torch.float64)
+    train_Qd = problem["Qd_all"][:train_size].to(device=device, dtype=torch.float64)
 
     # --- Slice VAL arrays and deploy to the target device ---
-    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device)
-    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device)
+    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float64)
+    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float64)
 
     # Transition background system tensors to matching target device
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
-            problem[key] = value.to(device)
+            # Only cast floating point tensors to float64 (leave integer indices alone)
+            if value.is_floating_point():
+                problem[key] = value.to(device=device, dtype=torch.float64)
+            else:
+                problem[key] = value.to(device)
 
     # 3. Setup Dataset Pipeline
     batch_size = 1024 
@@ -263,7 +267,7 @@ if __name__ == "__main__":
         nbus=problem["nbus"],
         ngen=problem["ngen"],
         slack_imag_idx=slack_imag_idx
-    ).to(device)
+    ).to(device=device, dtype=torch.float64)
 
     loss_weights = {
         "eq_p": 10.0,
