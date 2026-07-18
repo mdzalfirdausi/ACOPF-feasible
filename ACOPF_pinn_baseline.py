@@ -265,12 +265,12 @@ if __name__ == "__main__":
     ).to(device, dtype=torch.float64)
 
     loss_weights = {
-        "eq_p": 1000.0, 
+        "eq_p": 1000.0,
         "eq_q": 1000.0,
         "thermal": 1.0,
         "ang": 1.0,
         "v": 1.0,
-        "obj": 0.0005
+        "obj": 0.1
     }
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
