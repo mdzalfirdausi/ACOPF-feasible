@@ -68,12 +68,15 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             # --- Timing Inference ---
             start_time = time.perf_counter()
             
-            # Handle different forward signatures
+            # Handle different forward signatures and return lengths
             if "Rahul" in model_name:
                 outputs = model(Pd_batch, Qd_batch)
-                v, pg, qg = outputs[0], outputs[1], outputs[2]
             else:
-                v, pg, qg = model(Pd_batch, Qd_batch, problem)
+                outputs = model(Pd_batch, Qd_batch, problem)
+                
+            # Safely extract the 3 primal variables (v, pg, qg) whether the model 
+            # returns just 3 items or 15 items (like Hard KKT duals)
+            v, pg, qg = outputs[0], outputs[1], outputs[2]
                 
             total_time += (time.perf_counter() - start_time)
 
@@ -250,8 +253,8 @@ if __name__ == "__main__":
             ]
         },
         "KKT": {
-            # Assuming KKT shares the baseline QCQP MLP structure. Change if using a different class.
-            "class": lambda: HardKKT_QCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+            # Assuming KKT shares the baseline QCQP MLP structure. Change if using a different class. 
+            "class": lambda: HardKKT_QCQPMLP(nbus, ngen, nbranch, slack_imag_idx).to(device),
             "paths": [
                 "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260702_130402.pth",
                 "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260715_230435.pth",
