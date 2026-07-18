@@ -1,0 +1,25 @@
+Job: acopf_ISS
+Executing: ACOPF_pinn_baseline.py --case_name pglib_opf_case14_ieee --epochs 10000
+Node: issnode1
+GPU Allocated: 0
+CUDA Hardware Acceleration Active: NVIDIA GeForce RTX 4090
+Problem Geometry Linked -> Matrix Samples: 10000
+
+Beginning execution of parallelized training matrix loops...
+Epoch    0 | Val Loss: 146.5698 | Val Cost: 1376.64 | Val Max P-Miss: 1.0438 | Max Q-Miss: 0.7585 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch   10 | Val Loss: 22.1513 | Val Cost: 1654.75 | Val Max P-Miss: 0.3046 | Max Q-Miss: 0.1865 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch   20 | Val Loss: 17.6404 | Val Cost: 1933.64 | Val Max P-Miss: 0.3008 | Max Q-Miss: 0.1820 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch   30 | Val Loss: 14.0661 | Val Cost: 2179.21 | Val Max P-Miss: 0.2189 | Max Q-Miss: 0.1781 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch   40 | Val Loss: 12.5727 | Val Cost: 2395.16 | Val Max P-Miss: 0.1860 | Max Q-Miss: 0.1893 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch   50 | Val Loss: 36.2208 | Val Cost: 2550.89 | Val Max P-Miss: 0.2966 | Max Q-Miss: 0.4199 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000
+Epoch   60 | Val Loss: 10.4168 | Val Cost: 2538.70 | Val Max P-Miss: 0.1898 | Max Q-Miss: 0.2093 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch   70 | Val Loss: 11.0353 | Val Cost: 2701.46 | Val Max P-Miss: 0.2094 | Max Q-Miss: 0.1614 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000
+Epoch   80 | Val Loss: 11.0587 | Val Cost: 2466.74 | Val Max P-Miss: 0.2004 | Max Q-Miss: 0.1307 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000
+Epoch   90 | Val Loss: 6.7227 | Val Cost: 2735.03 | Val Max P-Miss: 0.1786 | Max Q-Miss: 0.0938 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch  100 | Val Loss: 7.8179 | Val Cost: 2741.09 | Val Max P-Miss: 0.1934 | Max Q-Miss: 0.1684 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000
+Epoch  110 | Val Loss: 6.3370 | Val Cost: 2754.16 | Val Max P-Miss: 0.1650 | Max Q-Miss: 0.1497 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch  120 | Val Loss: 6.4030 | Val Cost: 2795.11 | Val Max P-Miss: 0.1650 | Max Q-Miss: 0.1587 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000
+Epoch  130 | Val Loss: 5.9732 | Val Cost: 2818.47 | Val Max P-Miss: 0.1590 | Max Q-Miss: 0.1518 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch  140 | Val Loss: 9.5861 | Val Cost: 2830.31 | Val Max P-Miss: 0.1662 | Max Q-Miss: 0.1880 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000
+Epoch  150 | Val Loss: 5.5247 | Val Cost: 2803.76 | Val Max P-Miss: 0.1555 | Max Q-Miss: 0.1219 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch  160 | Val Loss: 4.5638 | Val Cost: 2862.65 | Val Max P-Miss: 0.1450 | Max Q-Miss: 0.0919 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]

@@ -172,7 +172,25 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
     # --------------------------------------------------------
     # D. KKT STATIONARITY (Analytical Gradients = 0)
     # --------------------------------------------------------
-    dL_dpg = (2 * c2 * pg) + c1 + (lam_p @ C_g) + mu_pg_max - mu_pg_min
+    # FIX: Locate the slack bus imaginary voltage index using your dataset's "a_ref" tensor
+    slack_imag_idx = (problem["a_ref"] == 1).nonzero(as_tuple=True)[0].item()
+    slack_ref_error = torch.abs(v[:, slack_imag_idx]).mean()
+
+    # Safely handle Lg_Max: in pure unsupervised mode, Lg_Max does not exist in the .pt file.
+    # Defaulting to 1.0 means the network directly predicts raw Lagrange multipliers without scaling.
+    if "Lg_Max" in problem:
+        lam_p_scaled = lam_p * problem["Lg_Max"][0]
+        mu_pg_max_scaled = mu_pg_max * problem["Lg_Max"][1]
+        mu_pg_min_scaled = mu_pg_min * problem["Lg_Max"][2]
+    else:
+        lam_p_scaled = lam_p
+        mu_pg_max_scaled = mu_pg_max
+        mu_pg_min_scaled = mu_pg_min
+
+    # Compute true mathematical stationarity
+    dL_dpg = (2 * c2 * pg) + c1 + (lam_p_scaled @ C_g) + mu_pg_max_scaled - mu_pg_min_scaled
+    
+    # dL_dpg = (2 * c2 * pg) + c1 + (lam_p @ C_g) + mu_pg_max - mu_pg_min
     dL_dqg = (lam_q @ C_g) + mu_qg_max - mu_qg_min
 
     # Exact Analytical Gradient w.r.t voltage (v)
@@ -222,7 +240,8 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
         weights["primal_ineq"] * loss_ineq +
         weights["cs"] * cs_loss +
         weights["dual_feas"] * dual_feas_loss +
-        weights["stationarity"] * stationarity_loss
+        weights["stationarity"] * stationarity_loss +
+        weights["slack_ref"] * slack_ref_error  # <-- Add the slack reference penalty here
     )
 
     # --------------------------------------------------------
@@ -233,7 +252,6 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
         "loss_primal": (loss_eq_p + loss_eq_q + loss_ineq).detach().item(),
         "loss_kkt_stat": stationarity_loss.detach().item(),
         "loss_kkt_cs": cs_loss.detach().item(),
-        
         "obj_cost": obj.detach().item(),
         "max_h_p": h_p.abs().max().detach().item(),
         "max_h_q": h_q.abs().max().detach().item(),
@@ -318,6 +336,7 @@ if __name__ == "__main__":
     loss_weights_rahul = {
     "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
     "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
+    "slack_ref": 1000.0,   
     "primal_ineq": 1.0,      # Matches baseline "thermal", "ang", "v"
     "cs": 1.0,               # KKT Complementary Slackness
     "dual_feas": 1.0,        # KKT Dual Feasibility
