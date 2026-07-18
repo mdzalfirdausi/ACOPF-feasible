@@ -17,7 +17,7 @@ from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 
 # --- MODEL DEFINITION ---
-class HardKKT_QCQPMLP(nn.Module):
+class HardKKT_QCQPMLP(nn.Module): 
     """
     Input:
         Pd: [B, nbus], Qd: [B, nbus]

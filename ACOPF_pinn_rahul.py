@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 
-# --- MODEL DEFINITION ---
+# --- MODEL DEFINITION --- 
 # IMPORTANT: Paste your exact RahulSinglePINN_Smax class definition here!
 class RahulSinglePINN_Smax(nn.Module):
     """

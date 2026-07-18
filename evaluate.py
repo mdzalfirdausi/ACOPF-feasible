@@ -77,7 +77,12 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             # Safely extract the 3 primal variables (v, pg, qg) whether the model 
             # returns just 3 items or 15 items (like Hard KKT duals)
             v, pg, qg = outputs[0], outputs[1], outputs[2]
-                
+                # --- ADD THIS DIAGNOSTIC CHECK ---
+            if total_samples == B:  # Only print for the very first batch of each model
+                print(f"[{model_name}] Total outputs returned: {len(outputs)}")
+                print(f"[{model_name}] First sample pg prediction: {pg[0].cpu().numpy()}")
+                print(f"[{model_name}] First sample qg prediction: {qg[0].cpu().numpy()}")
+            # ----------------------------------
             total_time += (time.perf_counter() - start_time)
 
             # Distance from Ground Truth (MAE)
@@ -85,15 +90,20 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             all_mae_pg.append(torch.abs(pg - pg_gt).mean().item())
             all_mae_qg.append(torch.abs(qg - qg_gt).mean().item())
 
-            # --- Objective Value (NN and IPOPT) ---
+            # --- Objective Value Error vs IPOPT (%) ---
             cost_nn = c2.expand(B,-1) * (pg ** 2) + c1.expand(B,-1) * pg + c0.expand(B,-1)
             cost_ipopt = c2.expand(B,-1) * (pg_gt ** 2) + c1.expand(B,-1) * pg_gt + c0.expand(B,-1)
             
-            obj = cost_nn.sum(dim=1)
-            all_objs.extend(obj.cpu().numpy())
+            obj_nn = cost_nn.sum(dim=1)
+            obj_ipopt = cost_ipopt.sum(dim=1)
+            # Calculate Relative Percentage Error: ((NN - IPOPT) / IPOPT) * 100
+            obj_error_pct = ((obj_nn - obj_ipopt) / obj_ipopt) * 100.0
             
-            plot_data["nn_costs"].extend(cost_nn.sum(dim=1).cpu().numpy())
-            plot_data["ipopt_costs"].extend(cost_ipopt.sum(dim=1).cpu().numpy())
+            # Store the percentage error instead of the raw cost
+            all_objs.extend(obj_error_pct.cpu().numpy())
+            
+            plot_data["nn_costs"].extend(obj_nn.cpu().numpy())
+            plot_data["ipopt_costs"].extend(obj_ipopt.cpu().numpy())
 
             # --- Evaluate Quadratic Forms ---
             vp = quad_batch_stack(v, problem["M_p"])
@@ -172,7 +182,12 @@ if __name__ == "__main__":
     total_samples = 10000
     dataset_path = f'./dataset/{case_name}_{total_samples}.pt'
     problem = torch.load(dataset_path, map_location=device)
-
+    # # Add this right after: problem = torch.load(dataset_path, map_location=device)
+    # print("\n--- DATASET INTEGRITY CHECK ---")
+    # print("pmax tensor:", problem["pmax"][:5])  # Print first 5 generator limits
+    # print("pmin tensor:", problem["pmin"][:5])
+    # print("c1 cost tensor:", problem["c1"][:5])
+    # print("-------------------------------\n")
     # 2. Extract EXACTLY the Test Set (The remaining 10%)
     actual_total_samples = problem["Pd_all"].shape[0] 
     train_size = int(0.8 * actual_total_samples)
@@ -315,8 +330,9 @@ if __name__ == "__main__":
         print("TABLE 1: INDIVIDUAL CHECKPOINT EVALUATIONS (ALL 25 RUNS)")
         print("=========================================================================================")
         df_display_raw = df_raw.copy()
-        df_display_raw["Obj. Value"] = df_display_raw.apply(lambda r: f"{r['Obj_Mean']:.2f} ({r['Obj_Std']:.2f})", axis=1)
-        df_display_raw = df_display_raw[["Architecture", "Run", "Obj. Value", "Max_Eq", "Mean_Eq", "Max_Ineq", "Mean_Ineq", "MAE_v", "MAE_pg", "MAE_qg", "Time_s"]]
+        # For Table 1 (line ~268):
+        df_display_raw["Obj. Error (%)"] = df_display_raw.apply(lambda r: f"{r['Obj_Mean']:.2f} ({r['Obj_Std']:.2f})", axis=1)
+        df_display_raw = df_display_raw[["Architecture", "Run", "Obj. Error (%)", "Max_Eq", "Mean_Eq", "Max_Ineq", "Mean_Ineq", "MAE_v", "MAE_pg", "MAE_qg", "Time_s"]]
         print(df_display_raw.to_string(index=False))
 
         print("\n=========================================================================================")
@@ -329,7 +345,7 @@ if __name__ == "__main__":
             n_seeds = len(group)
             summary_rows.append({
                 "Architecture": f"{arch_name} (n={n_seeds})",
-                "Obj. Value": f"{group['Obj_Mean'].mean():.2f} ± {group['Obj_Mean'].std():.2f}",
+                "Obj. Error (%)": f"{group['Obj_Mean'].mean():.2f} ± {group['Obj_Mean'].std():.2f}",
                 "Max Eq. (p.u.)": f"{group['Max_Eq'].mean():.4f} ± {group['Max_Eq'].std():.4f}",
                 "Mean Eq. (p.u.)": f"{group['Mean_Eq'].mean():.4f} ± {group['Mean_Eq'].std():.4f}",
                 "Max Ineq. (p.u.)": f"{group['Max_Ineq'].mean():.4f} ± {group['Max_Ineq'].std():.4f}",
