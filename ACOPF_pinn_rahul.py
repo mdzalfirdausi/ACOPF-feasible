@@ -42,37 +42,44 @@ class RahulSinglePINN_Smax(nn.Module):
             nn.Linear(hidden_dim, out_dim)
         )
 
-    def forward(self, Pd, Qd):
+    def forward(self, Pd, Qd, problem):  # <-- ADD problem HERE
+        B = Pd.shape[0]
         x = torch.cat([Pd, Qd], dim=-1)
-        
-        # Single forward pass
         raw = self.net(x)
         
         # ----------------------------------------------------
-        # 1. Slice Primal Variables (Unbounded)
+        # 1. Slice & BOUND Primal Variables
         # ----------------------------------------------------
         idx = 0
-        v = raw[:, idx : idx + self.dim_v]; idx += self.dim_v
+        v_raw = raw[:, idx : idx + self.dim_v]; idx += self.dim_v
+        pq_raw = raw[:, idx : idx + self.dim_g]; idx += self.dim_g
         
-        pq = raw[:, idx : idx + self.dim_g]; idx += self.dim_g
-        pg = pq[:, :self.ngen]
-        qg = pq[:, self.ngen:]
+        # Structurally bind voltages using Tanh to prevent quartic gradient explosions
+        Vmax_b = problem["Vmax"].unsqueeze(0).expand(B, -1)
+        Vmax_full = torch.cat([Vmax_b, Vmax_b], dim=-1)
+        v = torch.tanh(v_raw) * Vmax_full
+        
+        # Structurally lock generation between [min, max] using Sigmoid
+        # This makes negative generation (and negative costs) 100% IMPOSSIBLE!
+        pmax_b = problem["pmax"].unsqueeze(0).expand(B, -1)
+        pmin_b = problem["pmin"].unsqueeze(0).expand(B, -1)
+        qmax_b = problem["qmax"].unsqueeze(0).expand(B, -1)
+        qmin_b = problem["qmin"].unsqueeze(0).expand(B, -1)
+
+        pg = pmin_b + torch.sigmoid(pq_raw[:, :self.ngen]) * (pmax_b - pmin_b)
+        qg = qmin_b + torch.sigmoid(pq_raw[:, self.ngen:]) * (qmax_b - qmin_b)
         
         # ----------------------------------------------------
         # 2. Slice Dual Variables (Lagrange Multipliers)
         # ----------------------------------------------------
         lam_p = raw[:, idx : idx+self.nbus]; idx += self.nbus
         lam_q = raw[:, idx : idx+self.nbus]; idx += self.nbus
-        
         mu_sf = raw[:, idx : idx+self.nbranch]; idx += self.nbranch
         mu_st = raw[:, idx : idx+self.nbranch]; idx += self.nbranch
-        
         mu_ang_max = raw[:, idx : idx+self.nbranch]; idx += self.nbranch
         mu_ang_min = raw[:, idx : idx+self.nbranch]; idx += self.nbranch
-        
         mu_v_max = raw[:, idx : idx+self.nbus]; idx += self.nbus
         mu_v_min = raw[:, idx : idx+self.nbus]; idx += self.nbus
-        
         mu_pg_max = raw[:, idx : idx+self.ngen]; idx += self.ngen
         mu_pg_min = raw[:, idx : idx+self.ngen]; idx += self.ngen
         mu_qg_max = raw[:, idx : idx+self.ngen]; idx += self.ngen
@@ -81,7 +88,7 @@ class RahulSinglePINN_Smax(nn.Module):
         return (v, pg, qg, lam_p, lam_q, mu_sf, mu_st, 
                 mu_ang_max, mu_ang_min, mu_v_max, mu_v_min, 
                 mu_pg_max, mu_pg_min, mu_qg_max, mu_qg_min)
-    
+
 # --- UTILS & LOSS FUNCTIONS ---
 def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
     # v: [B, d], M: [K, d, d] -> [B, K]
@@ -97,7 +104,7 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
     # Forward Pass
     (v, pg, qg, lam_p, lam_q, mu_sf, mu_st, 
      mu_ang_max, mu_ang_min, mu_v_max, mu_v_min, 
-     mu_pg_max, mu_pg_min, mu_qg_max, mu_qg_min) = model(Pd_batch, Qd_batch)
+     mu_pg_max, mu_pg_min, mu_qg_max, mu_qg_min) = model(Pd_batch, Qd_batch, problem) 
 
     # Matrices & Limits
     M_p, M_q = problem["M_p"], problem["M_q"]
