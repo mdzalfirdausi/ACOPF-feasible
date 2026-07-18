@@ -366,7 +366,7 @@ if __name__ == "__main__":
         "primal_eq_p": 1000.0,   
         "primal_eq_q": 1000.0,   
         "primal_ineq": 1.0,      
-        "obj": 0.1,
+        "obj": 0.0005,
         "cs": 1.0,               # Complementary slackness weight
         "dual_feas": 1.0         # Enforcing positive multipliers
     }
