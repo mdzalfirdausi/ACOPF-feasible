@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-ACOPF Model Evaluation Script
-Generates metrics for DC3-style comparison table and rigorous performance plots.
+ACOPF Multi-Seed Model Evaluation Script
+Generates aggregated metrics (Mean ± Std across seeds) for DC3-style comparison tables 
+and rigorous pooled performance plots across 5 architectures x 5 runs each.
 """
 import os
 # Prevent OpenMP runtime crash on Windows Conda environments
@@ -17,6 +18,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # 1. IMPORT YOUR MODEL CLASSES HERE
+# (Ensure whatever class KKT uses is imported here if different from baselineQCQPMLP)
 from ACOPF_pinn_baseline import baselineQCQPMLP
 from ACOPF_pinn_rahul import RahulSinglePINN_Smax
 
@@ -48,7 +50,6 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
     qmin = problem["qmin"].unsqueeze(0)
     c2, c1, c0 = problem["c2"].unsqueeze(0), problem["c1"].unsqueeze(0), problem["c0"].unsqueeze(0)
     
-    # NEW: Store system-level metrics for plotting
     plot_data = {
         "ipopt_costs": [], 
         "nn_costs": [], 
@@ -57,7 +58,6 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
 
     with torch.no_grad():
         for Pd_batch, Qd_batch, v_gt, pg_gt, qg_gt in test_loader:
-            # Force all inputs and ground truths to float32 to prevent any mismatch
             Pd_batch, Qd_batch = Pd_batch.float(), Qd_batch.float()
             v_gt, pg_gt, qg_gt = v_gt.float(), pg_gt.float(), qg_gt.float()
             
@@ -68,7 +68,7 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             start_time = time.perf_counter()
             
             # Handle different forward signatures
-            if model_name == "Rahul Model":
+            if "Rahul" in model_name:
                 outputs = model(Pd_batch, Qd_batch)
                 v, pg, qg = outputs[0], outputs[1], outputs[2]
             else:
@@ -88,7 +88,6 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             obj = cost_nn.sum(dim=1)
             all_objs.extend(obj.cpu().numpy())
             
-            # Store for plotting
             plot_data["nn_costs"].extend(cost_nn.sum(dim=1).cpu().numpy())
             plot_data["ipopt_costs"].extend(cost_ipopt.sum(dim=1).cpu().numpy())
 
@@ -133,31 +132,31 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             all_max_ineq.append(ineq_violations.max().item())
             all_mean_ineq.append(ineq_violations.mean().item())
             
-            # Combine Eq and Ineq to find the absolute worst violation per sample for plotting
+            # Absolute worst violation per sample for plotting
             batch_max_eq = eq_violations.max(dim=1).values
             batch_max_ineq = ineq_violations.max(dim=1).values
             batch_max_viol = torch.max(batch_max_eq, batch_max_ineq)
             plot_data["max_violations"].extend(batch_max_viol.cpu().numpy())
 
-    # --- Aggregate Metrics for Table ---
-    metrics = {
-        "Obj. Value": f"{np.mean(all_objs):.2f} ({np.std(all_objs):.2f})",
-        "Max Eq.": f"{np.max(all_max_eq):.4f}",
-        "Mean Eq.": f"{np.mean(all_mean_eq):.4f} ({np.std(all_mean_eq):.4f})",
-        "Max Ineq.": f"{np.max(all_max_ineq):.4f}",
-        "Mean Ineq.": f"{np.mean(all_mean_ineq):.4f} ({np.std(all_mean_ineq):.4f})",
-        "MAE v": np.mean(all_mae_v),
-        "MAE pg": np.mean(all_mae_pg),
-        "MAE qg": np.mean(all_mae_qg),
-        "Time (s)": f"{total_time / total_samples:.6f}"
+    # Return raw numerical means for aggregation across seeds
+    raw_metrics = {
+        "Obj_Mean": np.mean(all_objs),
+        "Obj_Std": np.std(all_objs),
+        "Max_Eq": np.max(all_max_eq),
+        "Mean_Eq": np.mean(all_mean_eq),
+        "Max_Ineq": np.max(all_max_ineq),
+        "Mean_Ineq": np.mean(all_mean_ineq),
+        "MAE_v": np.mean(all_mae_v),
+        "MAE_pg": np.mean(all_mae_pg),
+        "MAE_qg": np.mean(all_mae_qg),
+        "Time_s": total_time / total_samples
     }
     
-    # Convert plot lists to numpy arrays
     plot_data["nn_costs"] = np.array(plot_data["nn_costs"])
     plot_data["ipopt_costs"] = np.array(plot_data["ipopt_costs"])
     plot_data["max_violations"] = np.array(plot_data["max_violations"])
     
-    return metrics, plot_data
+    return raw_metrics, plot_data
 
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
@@ -187,32 +186,26 @@ if __name__ == "__main__":
         print(f"CRITICAL: Ground truth file not found at {gt_path}. Required for gap plotting.")
         sys.exit(1)
 
-    # Filter out failed IPOPT solves
     status = gt_data['status']
     mask = np.array(['ok' in s.lower() or 'optimal' in s.lower() for s in status])
     print(f"Total Test Instances: {len(mask)} | Successful IPOPT Solves: {mask.sum()}")
 
-    # Extract ground truth variables (only for successful solves)
     test_v_gt = torch.tensor(gt_data['v_optimal'][mask], dtype=torch.float32).to(device)
     test_pg_gt = torch.tensor(gt_data['pg_optimal'][mask], dtype=torch.float32).to(device)
     test_qg_gt = torch.tensor(gt_data['qg_optimal'][mask], dtype=torch.float32).to(device)
     
-    # Apply mask to NN inputs to ensure alignment
     test_Pd = test_Pd[mask]
     test_Qd = test_Qd[mask]
 
     assert test_Pd.shape[0] == test_v_gt.shape[0], "Dataset size mismatch between PINN test set and IPOPT baseline!"
 
-    # Deploy matrices to device
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
-            # Cast floating-point tensors to float32, leave integer tensors (like indices) alone
             if value.is_floating_point():
                 problem[key] = value.to(device, dtype=torch.float32)
             else:
                 problem[key] = value.to(device)
 
-    # Build DataLoader with 5 variables
     batch_size = 1024 
     test_dataset = TensorDataset(test_Pd, test_Qd, test_v_gt, test_pg_gt, test_qg_gt)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
@@ -222,126 +215,217 @@ if __name__ == "__main__":
     ngen = problem["ngen"]
     nbranch = problem["nbranch"]
 
-    # 3. Model Registry
-    models_to_evaluate = {
+    # 3. Multi-Seed Model Registry (5 Architectures x 5 Runs)
+    # TODO: Fill in the remaining checkpoint paths for PINN Baseline, FSNet, KKT, and Rahul.
+    architectures_config = {
+        "DC3": {
+            "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+            "paths": [
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260715_202917.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260715_204723.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260715_210541.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260716_155933.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260716_161731.pth",
+            ]
+        },
         "PINN Baseline": {
-            "path": "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260702_104818.pth",
-            "class": baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device)
+            "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+            "paths": [
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260702_104818.pth",
+                # ADD 4 MORE PATHS HERE
+            ]
         },
-        "DC3 Model": {
-            "path": "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260702_112123.pth",
-            "class": baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device)
+        "FSNet": {
+            "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+            "paths": [
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260702_115656.pth",
+                # ADD 4 MORE PATHS HERE
+            ]
         },
-        "FSNet Model": {
-            "path": "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260702_115656.pth",
-            "class": baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device)
+        "KKT": {
+            # Assuming KKT shares the baseline QCQP MLP structure. Change if using a different class.
+            "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+            "paths": [
+                # ADD 5 PATHS HERE
+            ]
         },
         "Rahul Model": {
-            "path": "./model/rahul_pinn_pglib_opf_case14_ieee_10000epochs.pth",
-            "class": RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device)
+            "class": lambda: RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device),
+            "paths": [
+                "./model/rahul_pinn_pglib_opf_case14_ieee_10000epochs.pth",
+                # ADD 4 MORE PATHS HERE
+            ]
         }
     }
 
     # 4. Evaluation Loop
-    results_list = []
-    plot_artifacts = {}
+    raw_results_list = []
+    # Structure: arch_plot_artifacts[arch_name] = [plot_data_run1, plot_data_run2, ...]
+    arch_plot_artifacts = {arch: [] for arch in architectures_config.keys()}
 
-    for model_name, config in models_to_evaluate.items():
-        model = config["class"]
-        try:
-            model.load_state_dict(torch.load(config["path"], map_location=device, weights_only=True))
-            model = model.to(device).float() 
-            metrics, plot_data = evaluate_model(model, model_name, test_loader, problem, device)
-            metrics["Model"] = model_name
-            results_list.append(metrics)
-            plot_artifacts[model_name] = plot_data
+    for arch_name, config in architectures_config.items():
+        print(f"\n--- Evaluating Architecture: {arch_name} ---")
+        for run_idx, path in enumerate(config["paths"]):
+            if not os.path.exists(path):
+                print(f"  [Run {run_idx+1}] Skipped: Path not found -> {path}")
+                continue
+                
+            model = config["class"]()
+            try:
+                model.load_state_dict(torch.load(path, map_location=device, weights_only=True))
+                model = model.to(device).float() 
+                
+                raw_metrics, plot_data = evaluate_model(model, arch_name, test_loader, problem, device)
+                
+                # Store identifying metadata
+                raw_metrics["Architecture"] = arch_name
+                raw_metrics["Run"] = f"Run {run_idx + 1}"
+                raw_results_list.append(raw_metrics)
+                
+                arch_plot_artifacts[arch_name].append(plot_data)
+                print(f"  [Run {run_idx+1}] Evaluated successfully | Obj: {raw_metrics['Obj_Mean']:.2f} | Max Viol: {raw_metrics['Max_Ineq']:.4f}")
+                
+            except Exception as e:
+                print(f"  [Run {run_idx+1}] Failed due to error: {e}")
+
+    # =========================================================================
+    # METRICS AGGREGATION & REPORTING
+    # =========================================================================
+    df_raw = pd.DataFrame(raw_results_list)
+    
+    if not df_raw.empty:
+        print("\n=========================================================================================")
+        print("TABLE 1: INDIVIDUAL CHECKPOINT EVALUATIONS (ALL 25 RUNS)")
+        print("=========================================================================================")
+        df_display_raw = df_raw.copy()
+        df_display_raw["Obj. Value"] = df_display_raw.apply(lambda r: f"{r['Obj_Mean']:.2f} ({r['Obj_Std']:.2f})", axis=1)
+        df_display_raw = df_display_raw[["Architecture", "Run", "Obj. Value", "Max_Eq", "Mean_Eq", "Max_Ineq", "Mean_Ineq", "MAE_v", "MAE_pg", "MAE_qg", "Time_s"]]
+        print(df_display_raw.to_string(index=False))
+
+        print("\n=========================================================================================")
+        print("TABLE 2: PAPER-READY COMPARISON TABLE (AGGREGATED MEAN ± STD ACROSS SEEDS)")
+        print("=========================================================================================")
+        
+        # Calculate Mean and Std across the seeds for each architecture
+        summary_rows = []
+        for arch_name, group in df_raw.groupby("Architecture", sort=False):
+            n_seeds = len(group)
+            summary_rows.append({
+                "Architecture": f"{arch_name} (n={n_seeds})",
+                "Obj. Value": f"{group['Obj_Mean'].mean():.2f} ± {group['Obj_Mean'].std():.2f}",
+                "Max Eq. (p.u.)": f"{group['Max_Eq'].mean():.4f} ± {group['Max_Eq'].std():.4f}",
+                "Mean Eq. (p.u.)": f"{group['Mean_Eq'].mean():.4f} ± {group['Mean_Eq'].std():.4f}",
+                "Max Ineq. (p.u.)": f"{group['Max_Ineq'].mean():.4f} ± {group['Max_Ineq'].std():.4f}",
+                "Mean Ineq. (p.u.)": f"{group['Mean_Ineq'].mean():.4f} ± {group['Mean_Ineq'].std():.4f}",
+                "MAE v": f"{group['MAE_v'].mean():.5f}",
+                "MAE pg": f"{group['MAE_pg'].mean():.4f}",
+                "MAE qg": f"{group['MAE_qg'].mean():.4f}",
+                "Time (s)": f"{group['Time_s'].mean():.6f}"
+            })
             
-        except Exception as e:
-            print(f"Skipping {model_name} due to error: {e}")
-
-    # Display as Pandas DataFrame
-    df_results = pd.DataFrame(results_list)
-    if not df_results.empty:
-        df_results = df_results[["Model", "Obj. Value", "Max Eq.", "Mean Eq.", "Max Ineq.", "Mean Ineq.", "MAE v", "MAE pg", "MAE qg", "Time (s)"]]
+        df_summary = pd.DataFrame(summary_rows)
+        try:
+            from IPython.display import display
+            display(df_summary)
+        except ImportError:
+            print(df_summary.to_string(index=False))
+            
+        # Optional: Save tables to CSV for LaTeX importing
+        os.makedirs("plot", exist_ok=True)
+        df_summary.to_csv("plot/paper_comparison_table.csv", index=False)
     else:
-        print("WARNING: No models were successfully evaluated. DataFrame is empty.")
-    print("\n--- MODEL PERFORMANCE METRICS ---")
-    try:
-        from IPython.display import display
-        display(df_results)
-    except ImportError:
-        print(df_results.to_string())
+        print("WARNING: No models were successfully evaluated.")
+        sys.exit(0)
 
     # =========================================================================
     # PLOTTING SECTION
     # =========================================================================
-    print("\nGenerating rigorous validation plots...")
+    print("\nGenerating rigorous validation plots across all seeds...")
+    os.makedirs("plot", exist_ok=True)
 
     # -------------------------------------------------------------
-    # PLOT 2: Max Physical Violations (Sorted Error Curve - 2x2 Grid)
+    # PLOT 1: Sorted Error Curves (2x3 Grid to fit 5 Architectures)
     # -------------------------------------------------------------
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    fig, axes = plt.subplots(2, 3, figsize=(18, 11))
     axes = axes.flatten()
 
-    for i, model_name in enumerate(models_to_evaluate.keys()):
-        if model_name in plot_artifacts:
-            ax = axes[i]
-            viols = plot_artifacts[model_name]["max_violations"]
+    for i, (arch_name, runs_data) in enumerate(arch_plot_artifacts.items()):
+        ax = axes[i]
+        if runs_data:
+            all_sorted_viols = []
             
-            # Sort the violations to create a clean curve
-            sorted_viols = np.sort(viols)
+            # Plot individual seeds as light background curves
+            for r_idx, run_artifact in enumerate(runs_data):
+                viols = run_artifact["max_violations"]
+                sorted_viols = np.sort(viols)
+                all_sorted_viols.append(sorted_viols)
+                
+                # Thin transparent line for individual seeds
+                ax.plot(range(len(sorted_viols)), sorted_viols, alpha=0.25, color='red', 
+                        linewidth=1, label='Individual Runs' if r_idx == 0 else "")
             
-            # Plot the sorted violations
-            ax.scatter(range(len(sorted_viols)), sorted_viols, alpha=0.6, s=15, color='red')
+            # Compute and plot Median curve across the seeds
+            min_len = min(len(v) for v in all_sorted_viols)
+            stacked_viols = np.vstack([v[:min_len] for v in all_sorted_viols])
+            median_curve = np.median(stacked_viols, axis=0)
             
-            # Formatting (Log Scale is crucial here)
+            ax.plot(range(min_len), median_curve, color='darkred', linewidth=2.5, label='Median across seeds')
+            
             ax.set_yscale('log')
-            ax.axhline(y=1e-4, color='k', linestyle='--', linewidth=2, label='Tolerance (1e-4)')
+            ax.axhline(y=1e-4, color='k', linestyle='--', linewidth=1.5, label='Tolerance (1e-4)')
             
-            ax.set_title(f"{model_name}: Physical Feasibility")
+            ax.set_title(f"{arch_name} ({len(runs_data)} seeds)", fontsize=12, fontweight='bold')
             ax.set_xlabel("Sample Index (Sorted by Error)")
-            ax.set_ylabel("Max Constraint Violation (p.u.) [Log Scale]")
-            ax.grid(True, linestyle='--', alpha=0.6)
-            ax.legend(loc='upper left')
+            ax.set_ylabel("Max Violation (p.u.) [Log Scale]")
+            ax.grid(True, linestyle='--', alpha=0.5)
+            ax.legend(loc='upper left', fontsize=9)
+        else:
+            ax.set_title(f"{arch_name} (No Data)")
+            ax.axis('off')
+
+    # Hide the 6th empty subplot in the 2x3 grid
+    axes[5].axis('off')
 
     plt.tight_layout()
-    plt.savefig("plot/sorted_error_curves.pdf", format="pdf", bbox_inches="tight")
-    # plt.show()  
+    plt.savefig("plot/sorted_error_curves_multiseed.pdf", format="pdf", bbox_inches="tight")
+    # plt.show()
 
     # -------------------------------------------------------------
-    # PLOT 3: Distribution of Maximum Physical Violations (Boxplot)
+    # PLOT 2: Pooled Distribution of Maximum Violations (Boxplot)
     # -------------------------------------------------------------
     model_names = []
-    all_model_viols = []
+    pooled_model_viols = []
 
-    for model_name in models_to_evaluate.keys():
-        if model_name in plot_artifacts:
-            model_names.append(model_name)
-            viols = plot_artifacts[model_name]["max_violations"]
-            viols_safe = np.clip(viols, a_min=1e-10, a_max=None) 
-            all_model_viols.append(viols_safe)
+    for arch_name, runs_data in arch_plot_artifacts.items():
+        if runs_data:
+            model_names.append(arch_name)
+            # Pool all test sample violations across all 5 seeds (e.g., 1000 samples * 5 runs = 5000 points)
+            combined_viols = np.concatenate([r["max_violations"] for r in runs_data])
+            viols_safe = np.clip(combined_viols, a_min=1e-10, a_max=None) 
+            pooled_model_viols.append(viols_safe)
 
-    if all_model_viols:
-        plt.figure(figsize=(10, 6))
+    if pooled_model_viols:
+        plt.figure(figsize=(11, 6))
         
-        box = plt.boxplot(all_model_viols, patch_artist=True)
-        # Safely apply labels regardless of matplotlib version
-        plt.xticks(ticks=range(1, len(model_names) + 1), labels=model_names)
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'] 
-        for patch, color in zip(box['boxes'], colors):
+        box = plt.boxplot(pooled_model_viols, patch_artist=True)
+        plt.xticks(ticks=range(1, len(model_names) + 1), labels=model_names, fontsize=11, fontweight='bold')
+        
+        # Color palette for up to 5 architectures
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'] 
+        for patch, color in zip(box['boxes'], colors[:len(pooled_model_viols)]):
             patch.set_facecolor(color)
-            patch.set_alpha(0.6)
+            patch.set_alpha(0.65)
 
         plt.yscale('log')
         plt.axhline(y=1e-4, color='r', linestyle='--', linewidth=2, label='Acceptable Solver Tolerance (1e-4)')
         
-        plt.title("Distribution of Maximum Physical Violations Across Models", fontsize=14)
+        plt.title("Pooled Physical Feasibility Distribution Across All Seeds", fontsize=14, fontweight='bold')
         plt.ylabel("Max Constraint Violation (p.u.) [Log Scale]", fontsize=12)
         plt.grid(True, axis='y', linestyle='--', alpha=0.7)
-        plt.legend(fontsize=12, loc='upper left')
+        plt.legend(fontsize=11, loc='upper left')
         
         plt.tight_layout()
-        plt.savefig("plot/violation_boxplots.pdf", format="pdf", bbox_inches="tight")
+        plt.savefig("plot/violation_boxplots_pooled.pdf", format="pdf", bbox_inches="tight")
         # plt.show()
     else:
         print("No violation data available to plot.")
