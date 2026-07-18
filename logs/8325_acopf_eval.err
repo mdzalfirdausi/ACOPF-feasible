@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/nfs/mfirdausi/project/ACOPF-feasible/evaluate.py", line 287, in <module>
+    model = config["class"]()
+            ^^^^^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/project/ACOPF-feasible/evaluate.py", line 254, in <lambda>
+    "class": lambda: HardKKT_QCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: HardKKT_QCQPMLP.__init__() missing 1 required positional argument: 'slack_imag_idx'

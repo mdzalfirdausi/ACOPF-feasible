@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 # (Ensure whatever class KKT uses is imported here if different from baselineQCQPMLP)
 from ACOPF_pinn_baseline import baselineQCQPMLP
 from ACOPF_pinn_rahul import RahulSinglePINN_Smax
+from ACOPF_Hard_KKT import HardKKT_QCQPMLP
 
 # --- UTILS ---
 def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
@@ -232,28 +233,41 @@ if __name__ == "__main__":
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
             "paths": [
                 "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260702_104818.pth",
-                # ADD 4 MORE PATHS HERE
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260715_191820.pth",
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260715_192846.pth",
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260715_193845.pth",
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260716_153958.pth",
             ]
         },
         "FSNet": {
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
             "paths": [
                 "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260702_115656.pth",
-                # ADD 4 MORE PATHS HERE
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260715_212343.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260715_215704.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260715_223024.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260716_163533.pth",
             ]
         },
         "KKT": {
             # Assuming KKT shares the baseline QCQP MLP structure. Change if using a different class.
-            "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+            "class": lambda: HardKKT_QCQPMLP(nbus, ngen, slack_imag_idx).to(device),
             "paths": [
-                # ADD 5 PATHS HERE
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260702_130402.pth",
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260715_230435.pth",
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260715_234301.pth",
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260716_002104.pth",
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260716_134400.pth",
             ]
         },
         "Rahul Model": {
             "class": lambda: RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device),
             "paths": [
                 "./model/rahul_pinn_pglib_opf_case14_ieee_10000epochs.pth",
-                # ADD 4 MORE PATHS HERE
+                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_080436.pth",
+                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_081434.pth",
+                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_082429.pth",
+                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_083422.pth",
             ]
         }
     }
