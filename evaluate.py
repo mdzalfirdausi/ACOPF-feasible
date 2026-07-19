@@ -70,18 +70,18 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             
             # Handle different forward signatures and return lengths
             if "Rahul" in model_name:
-                outputs = model(Pd_batch, Qd_batch)
+                outputs = model(Pd_batch, Qd_batch, problem)
             else:
                 outputs = model(Pd_batch, Qd_batch, problem)
                 
             # Safely extract the 3 primal variables (v, pg, qg) whether the model 
             # returns just 3 items or 15 items (like Hard KKT duals)
             v, pg, qg = outputs[0], outputs[1], outputs[2]
-                # --- ADD THIS DIAGNOSTIC CHECK ---
-            if total_samples == B:  # Only print for the very first batch of each model
-                print(f"[{model_name}] Total outputs returned: {len(outputs)}")
-                print(f"[{model_name}] First sample pg prediction: {pg[0].cpu().numpy()}")
-                print(f"[{model_name}] First sample qg prediction: {qg[0].cpu().numpy()}")
+            #     # --- ADD THIS DIAGNOSTIC CHECK ---
+            # if total_samples == B:  # Only print for the very first batch of each model
+            #     print(f"[{model_name}] Total outputs returned: {len(outputs)}")
+            #     print(f"[{model_name}] First sample pg prediction: {pg[0].cpu().numpy()}")
+            #     print(f"[{model_name}] First sample qg prediction: {qg[0].cpu().numpy()}")
             # ----------------------------------
             total_time += (time.perf_counter() - start_time)
 
@@ -97,7 +97,7 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             obj_nn = cost_nn.sum(dim=1)
             obj_ipopt = cost_ipopt.sum(dim=1)
             # Calculate Relative Percentage Error: ((NN - IPOPT) / IPOPT) * 100
-            obj_error_pct = ((obj_nn - obj_ipopt) / obj_ipopt) * 100.0
+            obj_error_pct = torch.abs((obj_nn - obj_ipopt) / obj_ipopt) * 100.0
             
             # Store the percentage error instead of the raw cost
             all_objs.extend(obj_error_pct.cpu().numpy())
@@ -240,52 +240,52 @@ if __name__ == "__main__":
         "DC3": {
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
             "paths": [
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260715_202917.pth",
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260715_204723.pth",
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260715_210541.pth",
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260716_155933.pth",
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260716_161731.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_163631.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_172735.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_174545.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_180345.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_182208.pth",
             ]
         },
         "PINN Baseline": {
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
             "paths": [
-                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260702_104818.pth",
-                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260715_191820.pth",
-                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260715_192846.pth",
-                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260715_193845.pth",
-                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260716_153958.pth",
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_163808.pth",
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_164806.pth",
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_165755.pth",
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_170755.pth",
+                "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_171747.pth",
             ]
         },
         "FSNet": {
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
             "paths": [
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260702_115656.pth",
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260715_212343.pth",
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260715_215704.pth",
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260715_223024.pth",
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260716_163533.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_164047.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_191025.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_194350.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_201721.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_205109.pth",
             ]
         },
         "KKT": {
             # Assuming KKT shares the baseline QCQP MLP structure. Change if using a different class. 
             "class": lambda: HardKKT_QCQPMLP(nbus, ngen, nbranch, slack_imag_idx).to(device),
             "paths": [
-                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260702_130402.pth",
-                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260715_230435.pth",
-                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260715_234301.pth",
-                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260716_002104.pth",
-                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260716_134400.pth",
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_164207.pth",
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_215835.pth",
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_223701.pth",
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_231539.pth",
+                "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_235344.pth",
             ]
         },
         "Rahul Model": {
             "class": lambda: RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device),
             "paths": [
-                "./model/rahul_pinn_pglib_opf_case14_ieee_10000epochs.pth",
-                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_080436.pth",
-                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_081434.pth",
-                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_082429.pth",
-                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_083422.pth",
+                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_162730.pth",
+                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_165550.pth",
+                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260719_011022.pth",
+                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260719_012024.pth",
+                "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260719_013028.pth",
             ]
         }
     }
@@ -345,15 +345,15 @@ if __name__ == "__main__":
             n_seeds = len(group)
             summary_rows.append({
                 "Architecture": f"{arch_name} (n={n_seeds})",
-                "Obj. Error (%)": f"{group['Obj_Mean'].mean():.2f} ± {group['Obj_Mean'].std():.2f}",
+                "Obj. Error (%)": f"{group['Obj_Mean'].mean():.4f} ± {group['Obj_Mean'].std():.4f}",
                 "Max Eq. (p.u.)": f"{group['Max_Eq'].mean():.4f} ± {group['Max_Eq'].std():.4f}",
                 "Mean Eq. (p.u.)": f"{group['Mean_Eq'].mean():.4f} ± {group['Mean_Eq'].std():.4f}",
                 "Max Ineq. (p.u.)": f"{group['Max_Ineq'].mean():.4f} ± {group['Max_Ineq'].std():.4f}",
                 "Mean Ineq. (p.u.)": f"{group['Mean_Ineq'].mean():.4f} ± {group['Mean_Ineq'].std():.4f}",
-                "MAE v": f"{group['MAE_v'].mean():.5f}",
+                "MAE v": f"{group['MAE_v'].mean():.4f}",
                 "MAE pg": f"{group['MAE_pg'].mean():.4f}",
                 "MAE qg": f"{group['MAE_qg'].mean():.4f}",
-                "Time (s)": f"{group['Time_s'].mean():.6f}"
+                "Time (s)": f"{group['Time_s'].mean():.6f} ± {group['Time_s'].std():.6f}"
             })
             
         df_summary = pd.DataFrame(summary_rows)
