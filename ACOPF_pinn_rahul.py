@@ -54,10 +54,22 @@ class RahulSinglePINN_Smax(nn.Module):
         v_raw = raw[:, idx : idx + self.dim_v]; idx += self.dim_v
         pq_raw = raw[:, idx : idx + self.dim_g]; idx += self.dim_g
         
-        # Structurally bind voltages using Tanh to prevent quartic gradient explosions 
-        Vmax_b = problem["Vmax"].unsqueeze(0).expand(B, -1)
-        Vmax_full = torch.cat([Vmax_b, Vmax_b], dim=-1)
-        v = torch.tanh(v_raw) * Vmax_full
+        # --- REPLACED VOLTAGE BOUNDING LOGIC ---
+        # Split raw voltage outputs into Real and Imaginary parts
+        vr_raw = v_raw[:, :self.nbus]
+        vi_raw = v_raw[:, self.nbus:]
+
+        Vmax_b = problem["Vmax"].reshape(1, -1).expand(B, -1) if hasattr(problem["Vmax"], "reshape") else problem["Vmax"].unsqueeze(0).expand(B, -1)
+        Vmin_b = problem["Vmin"].reshape(1, -1).expand(B, -1) if hasattr(problem["Vmin"], "reshape") else problem["Vmin"].unsqueeze(0).expand(B, -1)
+
+        # 1. Bound Real Voltage strictly between [Vmin, Vmax] using Sigmoid (Centers around nominal 1.0 p.u.)
+        vr = Vmin_b + torch.sigmoid(vr_raw) * (Vmax_b - Vmin_b)
+        
+        # 2. Bound Imaginary Voltage (Angle differences keep imaginary components small, e.g., [-0.5*Vmax, 0.5*Vmax])
+        vi = torch.tanh(vi_raw) * (Vmax_b * 0.5)
+
+        v = torch.cat([vr, vi], dim=-1)
+        # ---------------------------------------
         
         # Structurally lock generation between [min, max] using Sigmoid
         # This makes negative generation (and negative costs) 100% IMPOSSIBLE!
@@ -344,9 +356,9 @@ if __name__ == "__main__":
     "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
     "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
     "slack_ref": 1000.0,   
-    "primal_ineq": 1.0,      # Matches baseline "thermal", "ang", "v"
-    "cs": 1.0,               # KKT Complementary Slackness
-    "dual_feas": 1.0,        # KKT Dual Feasibility
+    "primal_ineq": 1000.0,      # Matches baseline "thermal", "ang", "v"
+    "cs": 10.0,               # KKT Complementary Slackness
+    "dual_feas": 10.0,        # KKT Dual Feasibility
     "stationarity": 0.0005     # KKT Stationarity (Implicitly handles your objective cost)
     }
 

@@ -65,14 +65,23 @@ class HardKKT_QCQPMLP(nn.Module):
         pg_raw = g_raw[:, :self.ngen]
         qg_raw = g_raw[:, self.ngen:]
 
-        # Bounding Primal Guesses structurally
-        Vmax_b = problem["Vmax"].reshape(1, -1).expand(B, -1)
-        Vmax_full = torch.cat([Vmax_b, Vmax_b], dim=-1)
-        v_0 = torch.tanh(v_raw) * Vmax_full
+        # --- REPLACED VOLTAGE BOUNDING LOGIC ---
+        # Split raw voltage outputs into Real and Imaginary parts
+        vr_raw = v_raw[:, :self.nbus]
+        vi_raw = v_raw[:, self.nbus:]
 
-        v_clone = v_0.clone()
-        v_clone[:, self.slack_imag_idx] = 0.0
-        v_0 = v_clone
+        Vmax_b = problem["Vmax"].reshape(1, -1).expand(B, -1) if hasattr(problem["Vmax"], "reshape") else problem["Vmax"].unsqueeze(0).expand(B, -1)
+        Vmin_b = problem["Vmin"].reshape(1, -1).expand(B, -1) if hasattr(problem["Vmin"], "reshape") else problem["Vmin"].unsqueeze(0).expand(B, -1)
+
+        # 1. Bound Real Voltage strictly between [Vmin, Vmax] using Sigmoid (Centers around nominal 1.0 p.u.)
+        vr = Vmin_b + torch.sigmoid(vr_raw) * (Vmax_b - Vmin_b)
+        
+        # 2. Bound Imaginary Voltage (Angle differences keep imaginary components small, e.g., [-0.5*Vmax, 0.5*Vmax])
+        vi = torch.tanh(vi_raw) * (Vmax_b * 0.5)
+
+        v = torch.cat([vr, vi], dim=-1)
+        # ---------------------------------------
+        v_0 = v
 
         pmax_b = problem["pmax"].reshape(1, -1).expand(B, -1)
         pmin_b = problem["pmin"].reshape(1, -1).expand(B, -1)
@@ -365,12 +374,11 @@ if __name__ == "__main__":
     loss_weights_kkt = {
         "primal_eq_p": 1000.0,   
         "primal_eq_q": 1000.0,   
-        "primal_ineq": 1.0,      
+        "primal_ineq": 1000.0,   # Increased from 1.0 to stop thermal limit violations
         "obj": 0.0005,
-        "cs": 1.0,               # Complementary slackness weight
-        "dual_feas": 1.0         # Enforcing positive multipliers
+        "cs": 10.0,              # Increased from 1.0 for tighter complementary slackness
+        "dual_feas": 10.0        # Increased from 1.0
     }
-
     epochs = args.epochs
     best_val_loss = float('inf')
     # Generate a timestamp string like '20260702_090602' (YYYYMMDD_HHMMSS)
