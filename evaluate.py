@@ -424,41 +424,76 @@ if __name__ == "__main__":
     # plt.show()
 
     # -------------------------------------------------------------
-    # PLOT 2: Pooled Distribution of Maximum Violations (Boxplot)
+    # PLOT 2: Pooled Distribution of Maximum Violations (Violin Plot)
     # -------------------------------------------------------------
     model_names = []
-    pooled_model_viols = []
+    pooled_log_viols = []
 
     for arch_name, runs_data in arch_plot_artifacts.items():
         if runs_data:
             model_names.append(arch_name)
-            # Pool all test sample violations across all 5 seeds (e.g., 1000 samples * 5 runs = 5000 points)
+            # Pool all test sample violations across all 5 seeds
             combined_viols = np.concatenate([r["max_violations"] for r in runs_data])
-            viols_safe = np.clip(combined_viols, a_min=1e-10, a_max=None) 
-            pooled_model_viols.append(viols_safe)
+            viols_safe = np.clip(combined_viols, a_min=1e-10, a_max=None)
+            
+            # CRITICAL: Take log10 BEFORE violinplot so KDE evaluates correctly in log-space
+            pooled_log_viols.append(np.log10(viols_safe))
 
-    if pooled_model_viols:
-        plt.figure(figsize=(11, 6))
+    if pooled_log_viols:
+        plt.figure(figsize=(12, 6))
         
-        box = plt.boxplot(pooled_model_viols, patch_artist=True)
+        # Generate violin plot on log-transformed data
+        parts = plt.violinplot(
+            pooled_log_viols, 
+            showmeans=False, 
+            showmedians=True, 
+            showextrema=True,
+            widths=0.7
+        )
+        
         plt.xticks(ticks=range(1, len(model_names) + 1), labels=model_names, fontsize=11, fontweight='bold')
         
-        # Color palette for up to 5 architectures
-        colors = ['#1f77b4', '#1f77b4', '#1f77b4', '#1f77b4', '#1f77b4'] 
-        for patch, color in zip(box['boxes'], colors[:len(pooled_model_viols)]):
-            patch.set_facecolor(color)
-            patch.set_alpha(0.65)
-
-        plt.yscale('log')
-        plt.axhline(y=1e-4, color='r', linestyle='--', linewidth=2, label='Solver Tolerance (1e-4)')
+        # Distinct, paper-ready color palette for up to 5 architectures
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
         
-        plt.title("Pooled Physical Feasibility Distribution Across All Seeds", fontsize=14, fontweight='bold')
-        plt.ylabel("Max Constraint Violation (p.u.) [Log Scale]", fontsize=12)
+        # Style the violin bodies
+        for pc, color in zip(parts['bodies'], colors[:len(pooled_log_viols)]):
+            pc.set_facecolor(color)
+            pc.set_edgecolor('black')
+            pc.set_alpha(0.7)
+            
+        # Style the median and extrema lines
+        parts['cmedians'].set_color('black')
+        parts['cmedians'].set_linewidth(2.0)
+        parts['cmins'].set_color('black')
+        parts['cmaxes'].set_color('black')
+        parts['cbars'].set_color('black')
+        parts['cbars'].set_linewidth(1.2)
+        
+        # Overlay inner quartiles (25th and 75th percentiles) to give it a "box-in-violin" feel
+        for i, log_data in enumerate(pooled_log_viols):
+            q25, q75 = np.percentile(log_data, [25, 75])
+            plt.vlines(i + 1, q25, q75, color='white', linewidth=4, alpha=0.9, zorder=3)
+            # Re-draw median as a distinct red dot over the white bar
+            median_val = np.median(log_data)
+            plt.scatter(i + 1, median_val, color='darkred', s=30, zorder=4)
+
+        # Plot solver tolerance line at log10(1e-4) = -4.0
+        plt.axhline(y=-4.0, color='r', linestyle='--', linewidth=2, label='Solver Tolerance ($10^{-4}$)')
+        
+        # Format Y-axis ticks back to scientific notation (powers of 10)
+        y_min = int(np.floor(min(np.min(v) for v in pooled_log_viols)))
+        y_max = int(np.ceil(max(np.max(v) for v in pooled_log_viols)))
+        tick_locs = np.arange(y_min, y_max + 1, 1)
+        plt.yticks(tick_locs, [f"$10^{{{int(loc)}}}$" for loc in tick_locs], fontsize=11)
+        
+        plt.title("Pooled Physical Feasibility Distribution Across All Seeds (Violin KDE)", fontsize=14, fontweight='bold')
+        plt.ylabel("Max Constraint Violation (p.u.)", fontsize=12)
         plt.grid(True, axis='y', linestyle='--', alpha=0.7)
-        plt.legend(fontsize=11, loc='upper left')
+        plt.legend(fontsize=11, loc='upper right')
         
         plt.tight_layout()
-        plt.savefig("plot/violation_boxplots_pooled.pdf", format="pdf", bbox_inches="tight")
+        plt.savefig("plot/violation_violinplots_pooled.pdf", format="pdf", bbox_inches="tight")
         # plt.show()
     else:
         print("No violation data available to plot.")
