@@ -190,20 +190,28 @@ if __name__ == "__main__":
     total_time = time.time() - total_start_time
 
     successful_solves = sum(1 for s in metrics["status"] if "ok" in s.lower() or "optimal" in s.lower())
+    
+    # Calculate Mean and Standard Deviation for Solve Time
     avg_solve_time = np.mean(metrics["solve_time"])
+    std_solve_time = np.std(metrics["solve_time"])
     
     valid_costs = [obj for stat, obj in zip(metrics["status"], metrics["obj_val"]) 
                    if ("ok" in stat.lower() or "optimal" in stat.lower()) and not np.isnan(obj)]
-    avg_cost = np.mean(valid_costs) if valid_costs else float('inf')
+    
+    # Calculate Mean and Standard Deviation for Optimal Cost
+    if valid_costs:
+        avg_cost = np.mean(valid_costs)
+        std_cost = np.std(valid_costs)
+    else:
+        avg_cost = float('inf')
+        std_cost = float('nan')
 
     print("\n" + "="*50)
     print("IPOPT BASELINE EVALUATION COMPLETE")
     print(f"Total Computation Time: {total_time:.2f}s")
     print(f"Convergence Success Rate: {successful_solves}/{eval_limit} ({(successful_solves/eval_limit)*100:.2f}%)")
-    print(f"Average Solve Time: {avg_solve_time:.4f}s per instance")
-    print(f"Average Optimal Cost: {avg_cost:.2f}")
+    print(f"Solve Time per Instance: {avg_solve_time:.4f}s ± {std_solve_time:.4f}s")
+    print(f"Optimal Cost: {avg_cost:.2f} ± {std_cost:.2f}")
     print("="*50)
     
     np.savez(f"result/ipopt_baseline_{case_name}_{eval_limit}_instances.npz", **solutions, **metrics)
-    
-    

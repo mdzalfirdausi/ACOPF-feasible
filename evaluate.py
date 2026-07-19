@@ -237,16 +237,6 @@ if __name__ == "__main__":
     # 3. Multi-Seed Model Registry (5 Architectures x 5 Runs)
     # TODO: Fill in the remaining checkpoint paths for PINN Baseline, FSNet, KKT, and Rahul.
     architectures_config = {
-        "DC3": {
-            "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
-            "paths": [
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_163631.pth",
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_172735.pth",
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_174545.pth",
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_180345.pth",
-                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_182208.pth",
-            ]
-        },
         "PINN Baseline": {
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
             "paths": [
@@ -255,6 +245,16 @@ if __name__ == "__main__":
                 "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_165755.pth",
                 "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_170755.pth",
                 "./model/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_171747.pth",
+            ]
+        },
+        "DC3": {
+            "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+            "paths": [
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_163631.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_172735.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_174545.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_180345.pth",
+                "./model/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_182208.pth",
             ]
         },
         "FSNet": {
@@ -444,13 +444,13 @@ if __name__ == "__main__":
         plt.xticks(ticks=range(1, len(model_names) + 1), labels=model_names, fontsize=11, fontweight='bold')
         
         # Color palette for up to 5 architectures
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'] 
+        colors = ['#1f77b4', '#1f77b4', '#1f77b4', '#1f77b4', '#1f77b4'] 
         for patch, color in zip(box['boxes'], colors[:len(pooled_model_viols)]):
             patch.set_facecolor(color)
             patch.set_alpha(0.65)
 
         plt.yscale('log')
-        plt.axhline(y=1e-4, color='r', linestyle='--', linewidth=2, label='Acceptable Solver Tolerance (1e-4)')
+        plt.axhline(y=1e-4, color='r', linestyle='--', linewidth=2, label='Solver Tolerance (1e-4)')
         
         plt.title("Pooled Physical Feasibility Distribution Across All Seeds", fontsize=14, fontweight='bold')
         plt.ylabel("Max Constraint Violation (p.u.) [Log Scale]", fontsize=12)
