@@ -212,11 +212,14 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
         F.relu(g_qg_max_f).pow(2).mean() + F.relu(g_qg_min_f).pow(2).mean()
     )
 
+    # Inside compute_fsnet_qcqp_smax_loss (around line 170):
     total_loss = (
         (weights["primal_eq_p"] * loss_eq_p) + 
         (weights["primal_eq_q"] * loss_eq_q) + 
         (weights["primal_ineq"] * loss_ineq) + 
-        (weights["obj"] * obj)
+        (weights["obj"] * obj) +
+        # --- ADD THIS DISTILLATION TERM ---
+        (50.0 * (F.mse_loss(v_0, v.detach()) + F.mse_loss(pg_0, pg.detach()) + F.mse_loss(qg_0, qg.detach())))
     )
 
     # --------------------------------------------------------
