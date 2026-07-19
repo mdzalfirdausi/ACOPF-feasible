@@ -58,7 +58,7 @@ class baselineQCQPMLP(nn.Module):
 
         # 2. Bound Voltages to [-Vmax, Vmax] using Tanh for smooth gradients
         Vmax_b = problem["Vmax"].reshape(1, -1).expand(B, -1)
-        Vmax_full = torch.cat([Vmax_b, Vmax_b], dim=-1) # Real and imaginary spaces
+        Vmax_full = torch.cat([Vmax_b, Vmax_b], dim=-1) # Real and imaginary spaces 
         v = torch.tanh(v_raw) * Vmax_full
 
         # Constraint (2m): Enforce slack imaginary part = 0 exactly

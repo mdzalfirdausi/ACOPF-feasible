@@ -54,7 +54,7 @@ class RahulSinglePINN_Smax(nn.Module):
         v_raw = raw[:, idx : idx + self.dim_v]; idx += self.dim_v
         pq_raw = raw[:, idx : idx + self.dim_g]; idx += self.dim_g
         
-        # Structurally bind voltages using Tanh to prevent quartic gradient explosions
+        # Structurally bind voltages using Tanh to prevent quartic gradient explosions 
         Vmax_b = problem["Vmax"].unsqueeze(0).expand(B, -1)
         Vmax_full = torch.cat([Vmax_b, Vmax_b], dim=-1)
         v = torch.tanh(v_raw) * Vmax_full
@@ -106,7 +106,7 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
      mu_ang_max, mu_ang_min, mu_v_max, mu_v_min, 
      mu_pg_max, mu_pg_min, mu_qg_max, mu_qg_min) = model(Pd_batch, Qd_batch, problem) 
 
-    # Matrices & Limits
+    # Matrices & Limits 
     M_p, M_q = problem["M_p"], problem["M_q"]
     M_pf, M_qf = problem["M_pf"], problem["M_qf"]
     M_pt, M_qt = problem["M_pt"], problem["M_qt"]
