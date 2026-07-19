@@ -56,15 +56,22 @@ class baselineQCQPMLP(nn.Module):
         pg_raw = g_raw[:, :self.ngen]
         qg_raw = g_raw[:, self.ngen:]
 
-        # 2. Bound Voltages to [-Vmax, Vmax] using Tanh for smooth gradients 
-        Vmax_b = problem["Vmax"].reshape(1, -1).expand(B, -1)
-        Vmax_full = torch.cat([Vmax_b, Vmax_b], dim=-1) # Real and imaginary spaces
-        v = torch.tanh(v_raw) * Vmax_full
+        # --- REPLACED VOLTAGE BOUNDING LOGIC ---
+        # Split raw voltage outputs into Real and Imaginary parts
+        vr_raw = v_raw[:, :self.nbus]
+        vi_raw = v_raw[:, self.nbus:]
 
-        # Constraint (2m): Enforce slack imaginary part = 0 exactly
-        v_clone = v.clone()
-        v_clone[:, self.slack_imag_idx] = 0.0
-        v = v_clone
+        Vmax_b = problem["Vmax"].reshape(1, -1).expand(B, -1) if hasattr(problem["Vmax"], "reshape") else problem["Vmax"].unsqueeze(0).expand(B, -1)
+        Vmin_b = problem["Vmin"].reshape(1, -1).expand(B, -1) if hasattr(problem["Vmin"], "reshape") else problem["Vmin"].unsqueeze(0).expand(B, -1)
+
+        # 1. Bound Real Voltage strictly between [Vmin, Vmax] using Sigmoid (Centers around nominal 1.0 p.u.)
+        vr = Vmin_b + torch.sigmoid(vr_raw) * (Vmax_b - Vmin_b)
+        
+        # 2. Bound Imaginary Voltage (Angle differences keep imaginary components small, e.g., [-0.5*Vmax, 0.5*Vmax])
+        vi = torch.tanh(vi_raw) * (Vmax_b * 0.5)
+
+        v = torch.cat([vr, vi], dim=-1)
+        # ---------------------------------------
 
         # 3. Bound Generation strictly between [min, max] using Sigmoid
         pmax_b = problem["pmax"].reshape(1, -1).expand(B, -1)
@@ -205,11 +212,14 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
         F.relu(g_qg_max_f).pow(2).mean() + F.relu(g_qg_min_f).pow(2).mean()
     )
 
+    # Inside compute_fsnet_qcqp_smax_loss (around line 170):
     total_loss = (
         (weights["primal_eq_p"] * loss_eq_p) + 
         (weights["primal_eq_q"] * loss_eq_q) + 
         (weights["primal_ineq"] * loss_ineq) + 
-        (weights["obj"] * obj)
+        (weights["obj"] * obj) +
+        # --- ADD THIS DISTILLATION TERM ---
+        (50.0 * (F.mse_loss(v_0, v.detach()) + F.mse_loss(pg_0, pg.detach()) + F.mse_loss(qg_0, qg.detach())))
     )
 
     # --------------------------------------------------------
@@ -306,9 +316,9 @@ if __name__ == "__main__":
 
     # --- UPDATED FSNET LOSS WEIGHTS ---
     loss_weights_fsnet = {
-        "primal_eq_p": 10.0,   # Matches baseline "eq_p"
-        "primal_eq_q": 10.0,   # Matches baseline "eq_q"
-        "primal_ineq": 1.0,      # Matches baseline inequalities
+        "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
+        "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
+        "primal_ineq": 1000.0,      # Matches baseline inequalities
         "obj": 0.0005            # Generation cost weight matching baseline
     }
 

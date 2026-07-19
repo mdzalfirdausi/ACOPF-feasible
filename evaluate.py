@@ -96,11 +96,11 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             
             obj_nn = cost_nn.sum(dim=1)
             obj_ipopt = cost_ipopt.sum(dim=1)
-            # Calculate Relative Percentage Error: ((NN - IPOPT) / IPOPT) * 100
-            obj_error_pct = torch.abs((obj_nn - obj_ipopt) / obj_ipopt) * 100.0
+            # Calculate Signed Relative Percentage Error (Optimality Gap)
+            obj_gap_pct = ((obj_nn - obj_ipopt) / obj_ipopt) * 100.0
             
-            # Store the percentage error instead of the raw cost
-            all_objs.extend(obj_error_pct.cpu().numpy())
+            # Store signed gap
+            all_objs.extend(obj_gap_pct.cpu().numpy())
             
             plot_data["nn_costs"].extend(obj_nn.cpu().numpy())
             plot_data["ipopt_costs"].extend(obj_ipopt.cpu().numpy())
@@ -340,20 +340,27 @@ if __name__ == "__main__":
         print("=========================================================================================")
         
         # Calculate Mean and Std across the seeds for each architecture
+        # Calculate Mean and Std across the seeds for Table 2
         summary_rows = []
         for arch_name, group in df_raw.groupby("Architecture", sort=False):
             n_seeds = len(group)
+            mean_gap = group['Obj_Mean'].mean()
+            std_gap = group['Obj_Mean'].std()
+            
+            # Format explicitly with sign (+/-) so reviewers see cost undercutting
+            gap_str = f"{mean_gap:+.2f} ± {std_gap:.2f}"
+            
             summary_rows.append({
                 "Architecture": f"{arch_name} (n={n_seeds})",
-                "Obj. Error (%)": f"{group['Obj_Mean'].mean():.4f} ± {group['Obj_Mean'].std():.4f}",
+                "Optimality Gap (%)": gap_str,  # Renamed from Obj. Error (%)
                 "Max Eq. (p.u.)": f"{group['Max_Eq'].mean():.4f} ± {group['Max_Eq'].std():.4f}",
                 "Mean Eq. (p.u.)": f"{group['Mean_Eq'].mean():.4f} ± {group['Mean_Eq'].std():.4f}",
                 "Max Ineq. (p.u.)": f"{group['Max_Ineq'].mean():.4f} ± {group['Max_Ineq'].std():.4f}",
                 "Mean Ineq. (p.u.)": f"{group['Mean_Ineq'].mean():.4f} ± {group['Mean_Ineq'].std():.4f}",
-                "MAE v": f"{group['MAE_v'].mean():.4f}",
+                "MAE v": f"{group['MAE_v'].mean():.5f}",
                 "MAE pg": f"{group['MAE_pg'].mean():.4f}",
                 "MAE qg": f"{group['MAE_qg'].mean():.4f}",
-                "Time (s)": f"{group['Time_s'].mean():.6f} ± {group['Time_s'].std():.6f}"
+                "Time (s)": f"{group['Time_s'].mean():.6f}"
             })
             
         df_summary = pd.DataFrame(summary_rows)
