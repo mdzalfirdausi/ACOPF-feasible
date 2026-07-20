@@ -15,6 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
+torch.set_default_dtype(torch.float64)
 
 # --- MODEL DEFINITION ---
 class HardKKT_QCQPMLP(nn.Module):
