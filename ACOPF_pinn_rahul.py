@@ -13,6 +13,8 @@ import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 
+torch.set_default_dtype(torch.float64)
+
 # --- MODEL DEFINITION --- 
 # IMPORTANT: Paste your exact RahulSinglePINN_Smax class definition here!
 class RahulSinglePINN_Smax(nn.Module):
