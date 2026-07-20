@@ -339,6 +339,7 @@ def gaussian_batch(base_tensor, batch_size, variation_std=0.05, clamp_min=None):
     # Use torch.abs() to ensure variation is calculated correctly on negative base loads
     noise = variation_std * torch.abs(base_tensor.unsqueeze(0)) * torch.randn_like(base_batch)
     batch = base_batch + noise
+    # batch = base_batch
     
     if clamp_min is not None:
         batch = torch.clamp(batch, min=clamp_min)
