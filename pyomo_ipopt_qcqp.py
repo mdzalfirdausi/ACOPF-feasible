@@ -208,9 +208,9 @@ if __name__ == "__main__":
 
     print("\n" + "="*50)
     print("IPOPT BASELINE EVALUATION COMPLETE")
-    print(f"Total Computation Time: {total_time:.2f}s")
+    print(f"Total Computation Time: {total_time:.6f}s")
     print(f"Convergence Success Rate: {successful_solves}/{eval_limit} ({(successful_solves/eval_limit)*100:.2f}%)")
-    print(f"Solve Time per Instance: {avg_solve_time:.4f}s ± {std_solve_time:.4f}s")
+    print(f"Solve Time per Instance: {avg_solve_time:.6f}s ± {std_solve_time:.6f}s")
     print(f"Optimal Cost: {avg_cost:.2f} ± {std_cost:.2f}")
     print("="*50)
     

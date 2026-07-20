@@ -16,6 +16,7 @@ from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 # 1. IMPORT YOUR MODEL CLASSES HERE
 # (Ensure whatever class KKT uses is imported here if different from baselineQCQPMLP)
@@ -260,11 +261,11 @@ if __name__ == "__main__":
         "FSNet": {
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
             "paths": [
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_164047.pth",
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_191025.pth",
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_194350.pth",
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_201721.pth",
-                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260718_205109.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_133009.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_140424.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_143816.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_143816.pth",
+                "./model/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_151214.pth",
             ]
         },
         "KKT": {
@@ -278,7 +279,7 @@ if __name__ == "__main__":
                 "./model/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_235344.pth",
             ]
         },
-        "Rahul Model": {
+        "Rahul's Model": {
             "class": lambda: RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device),
             "paths": [
                 "./model/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_162730.pth",
@@ -348,7 +349,7 @@ if __name__ == "__main__":
             std_gap = group['Obj_Mean'].std()
             
             # Format explicitly with sign (+/-) so reviewers see cost undercutting
-            gap_str = f"{mean_gap:+.2f} ± {std_gap:.2f}"
+            gap_str = f"{mean_gap:+.4f} ± {std_gap:.4f}"
             
             summary_rows.append({
                 "Architecture": f"{arch_name} (n={n_seeds})",
@@ -360,13 +361,14 @@ if __name__ == "__main__":
                 "MAE v": f"{group['MAE_v'].mean():.5f}",
                 "MAE pg": f"{group['MAE_pg'].mean():.4f}",
                 "MAE qg": f"{group['MAE_qg'].mean():.4f}",
-                "Time (s)": f"{group['Time_s'].mean():.6f}"
+                "Time (s)": f"{group['Time_s'].mean():.6f} ± {group['Time_s'].std():.6f}"
             })
             
         df_summary = pd.DataFrame(summary_rows)
         try:
             from IPython.display import display
-            display(df_summary)
+            # display(df_summary)
+            print(df_summary.to_string(index=False))
         except ImportError:
             print(df_summary.to_string(index=False))
             
@@ -431,70 +433,64 @@ if __name__ == "__main__":
     # plt.show()
 
     # -------------------------------------------------------------
-    # PLOT 2: Pooled Distribution of Maximum Violations (Violin Plot)
+    # PLOT 2: Pooled Distribution of Maximum Violations (Seaborn Violin with density_norm="count")
     # -------------------------------------------------------------
-    model_names = []
-    pooled_log_viols = []
-
+    plot_rows = []
     for arch_name, runs_data in arch_plot_artifacts.items():
         if runs_data:
-            model_names.append(arch_name)
-            # Pool all test sample violations across all 5 seeds
+            # Pool all test sample violations across all evaluated seeds
             combined_viols = np.concatenate([r["max_violations"] for r in runs_data])
             viols_safe = np.clip(combined_viols, a_min=1e-10, a_max=None)
             
-            # CRITICAL: Take log10 BEFORE violinplot so KDE evaluates correctly in log-space
-            pooled_log_viols.append(np.log10(viols_safe))
+            # CRITICAL: Take log10 BEFORE seaborn KDE so density evaluates correctly in log-space
+            log_viols = np.log10(viols_safe)
+            
+            # Record exact sample count for multiline X-axis label
+            n_samples = len(log_viols)
+            arch_label = f"{arch_name}"
+            
+            # Append each sample as a row for Seaborn's long-form DataFrame requirement
+            for lv in log_viols:
+                plot_rows.append({
+                    "Architecture": arch_label,
+                    "Log_Max_Violation": lv
+                })
 
-    if pooled_log_viols:
-        plt.figure(figsize=(12, 6))
+    if plot_rows:
+        df_plot = pd.DataFrame(plot_rows)
         
-        # Generate violin plot on log-transformed data
-        parts = plt.violinplot(
-            pooled_log_viols, 
-            showmeans=False, 
-            showmedians=True, 
-            showextrema=True,
-            widths=0.7
+        plt.figure(figsize=(12, 6.5))
+        
+        # Paper-ready color palette for up to 5 architectures
+        palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+        
+        # Generate Seaborn Violin Plot
+        ax = sns.violinplot(
+            data=df_plot,
+            x="Architecture",
+            y="Log_Max_Violation",
+            density_norm="count",  # Width of violin scales directly with sample count n
+            inner="box",           # Automatically draws median dot and quartile box inside
+            cut=0,                 # Stops KDE smoothing at actual observed min/max error bounds
+            palette=palette[:df_plot["Architecture"].nunique()],
+            linewidth=1.2,
+            alpha=0.75
         )
         
-        plt.xticks(ticks=range(1, len(model_names) + 1), labels=model_names, fontsize=11, fontweight='bold')
+        # Style X-axis labels
+        plt.xticks(fontsize=10.5, fontweight='bold')
         
-        # Distinct, paper-ready color palette for up to 5 architectures
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-        
-        # Style the violin bodies
-        for pc, color in zip(parts['bodies'], colors[:len(pooled_log_viols)]):
-            pc.set_facecolor(color)
-            pc.set_edgecolor('black')
-            pc.set_alpha(0.7)
-            
-        # Style the median and extrema lines
-        parts['cmedians'].set_color('black')
-        parts['cmedians'].set_linewidth(2.0)
-        parts['cmins'].set_color('black')
-        parts['cmaxes'].set_color('black')
-        parts['cbars'].set_color('black')
-        parts['cbars'].set_linewidth(1.2)
-        
-        # Overlay inner quartiles (25th and 75th percentiles) to give it a "box-in-violin" feel
-        for i, log_data in enumerate(pooled_log_viols):
-            q25, q75 = np.percentile(log_data, [25, 75])
-            plt.vlines(i + 1, q25, q75, color='white', linewidth=4, alpha=0.9, zorder=3)
-            # Re-draw median as a distinct red dot over the white bar
-            median_val = np.median(log_data)
-            plt.scatter(i + 1, median_val, color='darkred', s=30, zorder=4)
-
         # Plot solver tolerance line at log10(1e-4) = -4.0
         plt.axhline(y=-4.0, color='r', linestyle='--', linewidth=2, label='Solver Tolerance ($10^{-4}$)')
         
         # Format Y-axis ticks back to scientific notation (powers of 10)
-        y_min = int(np.floor(min(np.min(v) for v in pooled_log_viols)))
-        y_max = int(np.ceil(max(np.max(v) for v in pooled_log_viols)))
+        y_min = int(np.floor(df_plot["Log_Max_Violation"].min()))
+        y_max = int(np.ceil(df_plot["Log_Max_Violation"].max()))
         tick_locs = np.arange(y_min, y_max + 1, 1)
         plt.yticks(tick_locs, [f"$10^{{{int(loc)}}}$" for loc in tick_locs], fontsize=11)
         
-        plt.title("Pooled Physical Feasibility Distribution Across All Seeds (Violin KDE)", fontsize=14, fontweight='bold')
+        plt.title("Constraint Violation Distribution Across 1000 Test Instances from 5 runs", fontsize=14, fontweight='bold')
+        plt.xlabel("", fontsize=12) # Hide x-axis label since architecture names are explanatory
         plt.ylabel("Max Constraint Violation (p.u.)", fontsize=12)
         plt.grid(True, axis='y', linestyle='--', alpha=0.7)
         plt.legend(fontsize=11, loc='upper right')
