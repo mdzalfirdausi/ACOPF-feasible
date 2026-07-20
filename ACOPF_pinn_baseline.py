@@ -226,6 +226,16 @@ if __name__ == "__main__":
     
     try:
         problem = torch.load(dataset_path, map_location=device)
+
+        print("--- STEP 1: EXHAUSTIVE DATASET INTEGRITY CHECK ---")
+        for k, v in problem.items():
+            if isinstance(v, torch.Tensor):
+                nan_count = torch.isnan(v).sum().item()
+                inf_count = torch.isinf(v).sum().item()
+                if nan_count > 0 or inf_count > 0:
+                    raise ValueError(f"CRITICAL DATA CORRUPTION: Tensor '{k}' contains {nan_count} NaNs and {inf_count} Infs!")
+        print("All problem matrices are 100% clean of NaNs and Infs.")
+
     except FileNotFoundError:
         print(f"CRITICAL: Admittance topology dataset not found at target: {dataset_path}")
         sys.exit(1)
