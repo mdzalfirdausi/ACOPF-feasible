@@ -5,15 +5,15 @@
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=8G
+#SBATCH --cpus-per-task=64
+#SBATCH --mem=160G
 #SBATCH --partition=gpu_x450
 #SBATCH --gres=gpu:1
 #SBATCH --exclude=gpu0002
 ##SBATCH --nodelist=gpu0003,gpu0004
 #SBATCH --chdir=/home/g202210120/projects/ACOPF-feasible
 
-# 1. Ensure a script was passed
+# 1. Ensure a script was passed 
 if [ -z "$1" ]; then
     echo "ERROR: No script filename provided."
     echo "Usage: sbatch submit.sh <your_script_name.py> [arguments...]"
