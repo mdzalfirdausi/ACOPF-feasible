@@ -68,6 +68,10 @@ Bs = case['bus']['Bs'].values / baseMVA
 Pd = case['bus'].Pd.values / baseMVA
 Qd = case['bus'].Qd.values / baseMVA
 
+# --- ADD THIS: Extract nominal voltage magnitude and angle (in radians) ---
+Vm = case['bus']['Vm'].values
+Va = np.radians(case['bus']['Va'].values)
+
 # State vector dimension D = 2 * |B|
 D = 2 * nbus
 
@@ -268,7 +272,9 @@ angmin = np.radians(np.asarray(case['branch'].angmin.values, dtype=np.float32))
 
 Vmax_arr = np.asarray(case['bus'].Vmax.values, dtype=np.float32)
 Vmin_arr = np.asarray(case['bus'].Vmin.values, dtype=np.float32)
-
+# --- ADD THIS: Format Vm and Va arrays ---
+Vm_arr = np.asarray(Vm, dtype=np.float32)
+Va_arr = np.asarray(Va, dtype=np.float32)
 # ------------------------------------------------------------
 # 6) Final problem dictionary for the PINN loss
 # ------------------------------------------------------------
@@ -302,7 +308,9 @@ problem = {
     
     "Vmax": torch.as_tensor(Vmax_arr, dtype=dtype, device=device),
     "Vmin": torch.as_tensor(Vmin_arr, dtype=dtype, device=device),
-    
+    # --- ADD THIS: Export nominal setpoints to the .pt file ---
+    "Vm": torch.as_tensor(Vm_arr, dtype=dtype, device=device),
+    "Va": torch.as_tensor(Va_arr, dtype=dtype, device=device),
     # Add the cost coefficients
     "c2": torch.tensor(c2, dtype=dtype, device=device),
     "c1": torch.tensor(c1, dtype=dtype, device=device),
@@ -330,7 +338,7 @@ print(f"  M_V shape  = {tuple(problem['M_v'].shape)}")
 
 total_samples = args.samples
  
-def gaussian_batch(base_tensor, batch_size, variation_std=0.05, clamp_min=None):
+def gaussian_batch(base_tensor, batch_size, variation_std=0.05):
     """
     Create a batch of tensors with Gaussian random variations.
     """
@@ -339,17 +347,16 @@ def gaussian_batch(base_tensor, batch_size, variation_std=0.05, clamp_min=None):
     # Use torch.abs() to ensure variation is calculated correctly on negative base loads
     noise = variation_std * torch.abs(base_tensor.unsqueeze(0)) * torch.randn_like(base_batch)
     batch = base_batch + noise
+    # batch = base_batch
     
-    if clamp_min is not None:
-        batch = torch.clamp(batch, min=clamp_min)
     return batch
 
 def generate_and_save_dataset(problem, total_samples=10000, save_path="acopf_problem_with_data.pt"):
     print(f"Generating {total_samples} static samples...")
     
     # Generate the full batch of demands (clamping Pd to 0, leaving Qd unclamped)
-    Pd_all = gaussian_batch(problem["Pd"], batch_size=total_samples, variation_std=0.05, clamp_min=0.0)
-    Qd_all = gaussian_batch(problem["Qd"], batch_size=total_samples, variation_std=0.05, clamp_min=None)
+    Pd_all = gaussian_batch(problem["Pd"], batch_size=total_samples, variation_std=0.0)
+    Qd_all = gaussian_batch(problem["Qd"], batch_size=total_samples, variation_std=0.0)
     
     # Attach the full generated datasets directly to the problem dictionary
     problem["Pd_all"] = Pd_all
