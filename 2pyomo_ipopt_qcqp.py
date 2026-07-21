@@ -32,17 +32,29 @@ def build_acopf_model(problem_dict, slack_imag_idx):
     m.qg = pyo.Var(m.GEN, initialize=lambda m, i: float((qmin[i] + qmax[i]) / 2.0), bounds=lambda m, i: (float(qmin[i]), float(qmax[i])))
     
     m.BUS2 = pyo.RangeSet(0, 2 * nbus - 1)
-    max_v_rect = float(np.max(problem_dict["Vmax"])) 
+    def v_bounds_rule(m, i):
+        bus_idx = i % nbus
+        v_limit = float(problem_dict["Vmax"][bus_idx])
+        return (-v_limit, v_limit)
+
+    # --- MATCH EGRET STEP 3: Initialize from nominal Vm and Va ---
+    Vm, Va = problem_dict["Vm"], problem_dict["Va"]
     
     def v_init_rule(m, i):
         if i < nbus:
-            # Seed the exact midpoint of [Vmin, Vmax] so we never violate tight voltage limits
-            return float((problem_dict["Vmin"][i] + problem_dict["Vmax"][i]) / 2.0)
+            # Real voltage component: Vm * cos(Va)
+            return float(Vm[i] * np.cos(Va[i]))
         else:
-            # Seed a tiny imaginary voltage (0.01) to prevent a degenerate Jacobian at theta=0
-            return 0.0 if i == slack_imag_idx else 0.01
-    m.v = pyo.Var(m.BUS2, initialize=v_init_rule, bounds=(-max_v_rect, max_v_rect))
+            # Imaginary voltage component: Vm * sin(Va)
+            bus_idx = i - nbus
+            return float(Vm[bus_idx] * np.sin(Va[bus_idx]))
+
+    m.v = pyo.Var(m.BUS2, initialize=v_init_rule, bounds=v_bounds_rule)
     m.v[slack_imag_idx].fix(0.0)
+    
+    # Keep the slack real lower bound from our earlier adjustment
+    slack_real_idx = slack_imag_idx - nbus
+    m.v[slack_real_idx].setlb(float(problem_dict["Vmin"][slack_real_idx]))
 
     def quad_form(matrix):
         M_coo = sp.coo_matrix(matrix)
@@ -68,7 +80,7 @@ def build_acopf_model(problem_dict, slack_imag_idx):
             if C_g[bus_i, g] != 0:
                 gen_p += float(C_g[bus_i, g]) * m.pg[g]
         v_Mp_v = quad_form(problem_dict["M_p"][bus_i])
-        m.Constraints.add(gen_p - m.Pd[bus_i] == v_Mp_v) # <-- Using Param
+        m.Constraints.add(gen_p - m.Pd[bus_i] == v_Mp_v) 
         
         # Reactive Power Balance (Now uses m.Qd)
         gen_q = 0.0
@@ -76,7 +88,7 @@ def build_acopf_model(problem_dict, slack_imag_idx):
             if C_g[bus_i, g] != 0:
                 gen_q += float(C_g[bus_i, g]) * m.qg[g]
         v_Mq_v = quad_form(problem_dict["M_q"][bus_i])
-        m.Constraints.add(gen_q - m.Qd[bus_i] == v_Mq_v) # <-- Using Param
+        m.Constraints.add(gen_q - m.Qd[bus_i] == v_Mq_v) 
         
         v_Mv_v = quad_form(problem_dict["M_v"][bus_i])
         m.Constraints.add(pyo.inequality(float(Vmin2[bus_i]), v_Mv_v, float(Vmax2[bus_i])))
@@ -218,7 +230,7 @@ if __name__ == "__main__":
         std_cost = float('nan')
 
     print("\n" + "="*50)
-    print("IPOPT BASELINE EVALUATION COMPLETE")
+    print(f"IPOPT {case_name} EVALUATION COMPLETE")
     print(f"Total Computation Time: {total_time:.6f}s")
     print(f"Convergence Success Rate: {successful_solves}/{eval_limit} ({(successful_solves/eval_limit)*100:.2f}%)")
     print(f"Solve Time per Instance: {avg_solve_time:.6f}s ± {std_solve_time:.6f}s")
