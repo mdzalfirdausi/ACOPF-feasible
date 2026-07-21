@@ -35,7 +35,12 @@ def build_acopf_model(problem_dict, slack_imag_idx):
     max_v_rect = float(np.max(problem_dict["Vmax"])) 
     
     def v_init_rule(m, i):
-        return 1.0 if i < nbus else 0.0
+        if i < nbus:
+            # Seed the exact midpoint of [Vmin, Vmax] so we never violate tight voltage limits
+            return float((problem_dict["Vmin"][i] + problem_dict["Vmax"][i]) / 2.0)
+        else:
+            # Seed a tiny imaginary voltage (0.01) to prevent a degenerate Jacobian at theta=0
+            return 0.0 if i == slack_imag_idx else 0.01
     m.v = pyo.Var(m.BUS2, initialize=v_init_rule, bounds=(-max_v_rect, max_v_rect))
     m.v[slack_imag_idx].fix(0.0)
 
@@ -134,12 +139,13 @@ if __name__ == "__main__":
     # 1. BUILD THE MODEL ONCE
     m = build_acopf_model(problem_np, slack_imag_idx)
     
-    # 2. INITIALIZE SOLVER
+    # 2. INITIALIZE SOLVER (Add OPF barrier push options)
     solver = pyo.SolverFactory('ipopt')
     solver.options['tol'] = 1e-6
     solver.options['max_iter'] = 3000
-    # Turn off tee=True so your console isn't spammed with thousands of IPOPT logs
-    tee_flag = True 
+    solver.options['bound_push'] = 1e-2  # Prevents IPOPT from slamming into bound walls
+    solver.options['bound_frac'] = 1e-2  # Keeps initial barrier steps inside the feasible interior
+    tee_flag = True
 
     metrics = {"status": [], "obj_val": [], "solve_time": []}
     solutions = {"v_optimal": [], "pg_optimal": [], "qg_optimal": []}
@@ -151,17 +157,22 @@ if __name__ == "__main__":
     total_start_time = time.time()
     
     for i in range(eval_limit):
-        # 3. HOT-SWAP PARAMETERS INSTEAD OF REBUILDING
+        # 3. HOT-SWAP PARAMETERS AND RESET VARIABLES INSIDE THE LOOP
         for b in range(problem_np["nbus"]):
             m.Pd[b] = float(test_Pd[i][b])
             m.Qd[b] = float(test_Qd[i][b])
         
-        # This clears the "memory" of the previous optimal solution
         for gen in m.GEN:
             m.pg[gen].value = float((pmin[gen] + pmax[gen]) / 2.0)
             m.qg[gen].value = float((qmin[gen] + qmax[gen]) / 2.0)
-        for bus in m.BUS2:
-            m.v[bus].value = 1.0 if bus < nbus else 0.0
+            
+        for bus in range(nbus):
+            # Reset real voltage to the midpoint of bounds
+            v_mid = float((problem_np["Vmin"][bus] + problem_np["Vmax"][bus]) / 2.0)
+            m.v[bus].value = v_mid
+            # Reset imaginary voltage to a tiny non-zero tilt
+            m.v[bus + nbus].value = 0.0 if (bus + nbus) == slack_imag_idx else 0.01
+            
         solver.options['warm_start_init_point'] = 'no'
         
         print(f"[{i+1}/{eval_limit}] Solving Instance...")
