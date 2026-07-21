@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 
-# torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float64)
 
 # --- MODEL DEFINITION --- 
 # IMPORTANT: Paste your exact RahulSinglePINN_Smax class definition here!
@@ -140,27 +140,15 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
     c2 = problem["c2"].unsqueeze(0).expand(B, -1)
     c1 = problem["c1"].unsqueeze(0).expand(B, -1)
     c0 = problem["c0"].unsqueeze(0).expand(B, -1)
-    M_p_v  = batch_Mv(M_p, v)
-    M_q_v  = batch_Mv(M_q, v)
-    M_pf_v = batch_Mv(M_pf, v)
-    M_qf_v = batch_Mv(M_qf, v)
-    M_pt_v = batch_Mv(M_pt, v)
-    M_qt_v = batch_Mv(M_qt, v)
-    M_c_v  = batch_Mv(M_c, v)
-    M_s_v  = batch_Mv(M_s, v)
-    M_v_v  = batch_Mv(M_v, v)
+
     # --------------------------------------------------------
     # A. PRIMAL EVALUATIONS
     # --------------------------------------------------------
-    vp = torch.einsum('bi,bki->bk', v, M_p_v)
-    vq = torch.einsum('bi,bki->bk', v, M_q_v)
-    pf = torch.einsum('bi,bki->bk', v, M_pf_v)
-    qf = torch.einsum('bi,bki->bk', v, M_qf_v)
-    pt = torch.einsum('bi,bki->bk', v, M_pt_v)
-    qt = torch.einsum('bi,bki->bk', v, M_qt_v)
-    vc = torch.einsum('bi,bki->bk', v, M_c_v)
-    vs = torch.einsum('bi,bki->bk', v, M_s_v)
-    vv = torch.einsum('bi,bki->bk', v, M_v_v)
+    vp = quad_batch_stack(v, M_p); vq = quad_batch_stack(v, M_q)
+    pf = quad_batch_stack(v, M_pf); qf = quad_batch_stack(v, M_qf)
+    pt = quad_batch_stack(v, M_pt); qt = quad_batch_stack(v, M_qt)
+    vc = quad_batch_stack(v, M_c); vs = quad_batch_stack(v, M_s)
+    vv = quad_batch_stack(v, M_v)
 
     # Equations
     h_p = (pg @ C_g.T) - Pd_batch - vp
@@ -227,19 +215,19 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
     dL_dqg = (lam_q @ C_g) + mu_qg_max - mu_qg_min
 
     # Exact Analytical Gradient w.r.t voltage (v)
-    dL_dv_p = -2 * torch.einsum('bk,bki->bi', lam_p, M_p_v)
-    dL_dv_q = -2 * torch.einsum('bk,bki->bi', lam_q, M_q_v)
+    dL_dv_p = -2 * torch.einsum('bk,bki->bi', lam_p, batch_Mv(M_p, v))
+    dL_dv_q = -2 * torch.einsum('bk,bki->bi', lam_q, batch_Mv(M_q, v))
     
     # The Quartic Analytical Gradient for smax: 4 * mu * (p * Mp*v + q * Mq*v)
-    dL_dv_sf = 4 * torch.einsum('bk,bk,bki->bi', mu_sf, pf, M_pf_v) + \
-               4 * torch.einsum('bk,bk,bki->bi', mu_sf, qf, M_qf_v)
-    dL_dv_st = 4 * torch.einsum('bk,bk,bki->bi', mu_st, pt, M_pt_v) + \
-               4 * torch.einsum('bk,bk,bki->bi', mu_st, qt, M_qt_v)
+    dL_dv_sf = 4 * torch.einsum('bk,bk,bki->bi', mu_sf, pf, batch_Mv(M_pf, v)) + \
+               4 * torch.einsum('bk,bk,bki->bi', mu_sf, qf, batch_Mv(M_qf, v))
+    dL_dv_st = 4 * torch.einsum('bk,bk,bki->bi', mu_st, pt, batch_Mv(M_pt, v)) + \
+               4 * torch.einsum('bk,bk,bki->bi', mu_st, qt, batch_Mv(M_qt, v))
     
-    dL_dv_vmax = 2 * torch.einsum('bk,bki->bi', mu_v_max, M_v_v)
-    dL_dv_vmin = -2 * torch.einsum('bk,bki->bi', mu_v_min, M_v_v)
+    dL_dv_vmax = 2 * torch.einsum('bk,bki->bi', mu_v_max, batch_Mv(M_v, v))
+    dL_dv_vmin = -2 * torch.einsum('bk,bki->bi', mu_v_min, batch_Mv(M_v, v))
     
-    # M_s_v and M_c_v are already cached above! 
+    M_s_v = batch_Mv(M_s, v); M_c_v = batch_Mv(M_c, v)
     t_max = torch.tan(angmax).unsqueeze(-1); t_min = torch.tan(angmin).unsqueeze(-1)
     
     dL_dv_angmax = torch.einsum('bk,bki->bi', mu_ang_max, 2 * M_s_v - 2 * t_max * M_c_v)
