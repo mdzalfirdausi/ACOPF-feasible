@@ -15,7 +15,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
+torch.set_float32_matmul_precision('high')
 
 # --- MODEL DEFINITION ---
 class HardKKT_QCQPMLP(nn.Module):
@@ -116,11 +117,6 @@ class HardKKT_QCQPMLP(nn.Module):
                 mu_ang_max, mu_ang_min, mu_v_max, mu_v_min, 
                 mu_pg_max, mu_pg_min, mu_qg_max, mu_qg_min)
 
-
-# --- UTILS & LOSS FUNCTIONS ---
-def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
-    return torch.einsum("bi,kij,bj->bk", v, M, v)
-
 def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps=5, kkt_lr=1e-3, rho=1.0):
     B = Pd_batch.shape[0]
     
@@ -131,26 +127,71 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
      mu_ang_max, mu_ang_min, mu_v_max, mu_v_min, 
      mu_pg_max, mu_pg_min, mu_qg_max, mu_qg_min) = model(Pd_batch, Qd_batch, problem)
 
-    # Unpack Problem Matrices
-    M_p, M_q = problem["M_p"], problem["M_q"]
-    M_pf, M_qf = problem["M_pf"], problem["M_qf"]
-    M_pt, M_qt = problem["M_pt"], problem["M_qt"]
-    M_c, M_s, M_v = problem["M_c"], problem["M_s"], problem["M_v"]
-    C_g = problem["C_g"]
+    nbus = problem["nbus"]
+    f = problem["fbus"]
+    t = problem["tbus"]
+    f_exp = f.unsqueeze(0).expand(B, -1)
+    t_exp = t.unsqueeze(0).expand(B, -1)
     
-    smax = problem["smax"].unsqueeze(0).expand(B, -1)
-    angmax = problem["angmax"].unsqueeze(0).expand(B, -1)
+    # Pre-expand fixed limits
+    smax2 = problem["smax"]**2
+    Vmax2 = problem["Vmax"]**2
+    Vmin2 = problem["Vmin"]**2
     angmin = problem["angmin"].unsqueeze(0).expand(B, -1)
-    Vmin = problem["Vmin"].unsqueeze(0).expand(B, -1)
-    Vmax = problem["Vmax"].unsqueeze(0).expand(B, -1)
+    angmax = problem["angmax"].unsqueeze(0).expand(B, -1)
     pmax = problem["pmax"].unsqueeze(0).expand(B, -1)
     pmin = problem["pmin"].unsqueeze(0).expand(B, -1)
     qmax = problem["qmax"].unsqueeze(0).expand(B, -1)
     qmin = problem["qmin"].unsqueeze(0).expand(B, -1)
-    
-    c2 = problem["c2"].unsqueeze(0).expand(B, -1)
-    c1 = problem["c1"].unsqueeze(0).expand(B, -1)
-    c0 = problem["c0"].unsqueeze(0).expand(B, -1) if "c0" in problem else 0.0
+
+    # --- Nested Helper to Evaluate Physics for Graph-Incidence ---
+    def evaluate_physics(v_curr, pg_curr, qg_curr):
+        vr = v_curr[:, :nbus]; vi = v_curr[:, nbus:]
+        vr_f = vr[:, f]; vi_f = vi[:, f]
+        vr_t = vr[:, t]; vi_t = vi[:, t]
+        
+        vv_f = vr_f**2 + vi_f**2
+        vv_t = vr_t**2 + vi_t**2
+        v_rt_cross = vr_f * vr_t + vi_f * vi_t
+        v_it_cross = vr_f * vi_t - vi_f * vr_t
+        
+        # 1D Branch Flows
+        pf = problem["g11"] * vv_f - (problem["g12"] - problem["b21"]) * v_rt_cross + (problem["g21"] + problem["b12"]) * v_it_cross
+        qf = -problem["b11"] * vv_f + (problem["b12"] + problem["g21"]) * v_rt_cross + (problem["b21"] - problem["g12"]) * v_it_cross
+        pt = problem["g22"] * vv_t - (problem["g12"] + problem["b21"]) * v_rt_cross + (problem["g21"] - problem["b12"]) * v_it_cross
+        qt = -problem["b22"] * vv_t + (problem["b12"] - problem["g21"]) * v_rt_cross - (problem["b21"] + problem["g12"]) * v_it_cross
+        
+        # Nodal Injections via scatter_add
+        vp = problem["Gs"] * (vr**2 + vi**2)
+        vq = -problem["Bs"] * (vr**2 + vi**2)
+        vp = vp.scatter_add(1, f_exp, pf)
+        vp = vp.scatter_add(1, t_exp, pt)
+        vq = vq.scatter_add(1, f_exp, qf)
+        vq = vq.scatter_add(1, t_exp, qt)
+
+        h_p_out = (pg_curr @ problem["C_g"].T) - Pd_batch - vp
+        h_q_out = (qg_curr @ problem["C_g"].T) - Qd_batch - vq
+        g_sf_out = (pf**2 + qf**2) - smax2
+        g_st_out = (pt**2 + qt**2) - smax2
+        g_ang_min_out = torch.tan(angmin) * v_rt_cross - v_it_cross
+        g_ang_max_out = v_it_cross - torch.tan(angmax) * v_rt_cross
+        
+        vv = vr**2 + vi**2
+        g_v_max_out = vv - Vmax2
+        g_v_min_out = Vmin2 - vv
+        g_pg_max_out = pg_curr - pmax
+        g_pg_min_out = pmin - pg_curr
+        g_qg_max_out = qg_curr - qmax
+        g_qg_min_out = qmin - qg_curr
+        
+        c2 = problem["c2"].unsqueeze(0).expand(B, -1)
+        c1 = problem["c1"].unsqueeze(0).expand(B, -1)
+        c0 = problem["c0"].unsqueeze(0).expand(B, -1) if "c0" in problem else 0.0
+        # NOTE: Returned as [B] array (not mean) for exact per-sample Lagrangian construction
+        obj_cost = (c2 * (pg_curr ** 2) + c1 * pg_curr + c0).sum(dim=1)
+        
+        return (h_p_out, h_q_out, g_sf_out, g_st_out, g_ang_min_out, g_ang_max_out, 
+                g_v_max_out, g_v_min_out, g_pg_max_out, g_pg_min_out, g_qg_max_out, g_qg_min_out, obj_cost)
 
     # --------------------------------------------------------
     # 2. UNROLLED KKT OPTIMIZER LAYER (Augmented Lagrangian)
@@ -168,29 +209,10 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
     
     with torch.enable_grad(): 
         for _ in range(kkt_steps):
-            # A. Evaluate Constraints on Current State
-            vp = quad_batch_stack(v, M_p); vq = quad_batch_stack(v, M_q)
-            pf = quad_batch_stack(v, M_pf); qf = quad_batch_stack(v, M_qf)
-            pt = quad_batch_stack(v, M_pt); qt = quad_batch_stack(v, M_qt)
-            vc = quad_batch_stack(v, M_c); vs = quad_batch_stack(v, M_s)
-            vv = quad_batch_stack(v, M_v)
+            (h_p, h_q, g_sf, g_st, g_ang_min, g_ang_max, g_v_max, g_v_min, 
+             g_pg_max, g_pg_min, g_qg_max, g_qg_min, obj) = evaluate_physics(v, pg, qg)
             
-            h_p = (pg @ C_g.T) - Pd_batch - vp
-            h_q = (qg @ C_g.T) - Qd_batch - vq
-            g_sf = (pf**2 + qf**2) - smax**2
-            g_st = (pt**2 + qt**2) - smax**2
-            g_ang_min = torch.tan(angmin) * vc - vs
-            g_ang_max = vs - torch.tan(angmax) * vc
-            g_v_max = vv - (Vmax**2)
-            g_v_min = (Vmin**2) - vv
-            g_pg_max = pg - pmax; g_pg_min = pmin - pg
-            g_qg_max = qg - qmax; g_qg_min = qmin - qg
-            
-            # Objective Cost
-            cost = c2 * (pg ** 2) + c1 * pg + c0
-            obj = cost.sum(dim=1)
-
-            # B. Construct Augmented Lagrangian (L_rho) using predicted duals
+            # Construct Augmented Lagrangian (L_rho) using predicted duals
             lam_h = (lam_p * h_p).sum(dim=1) + (lam_q * h_q).sum(dim=1)
             
             mu_g = (mu_sf * g_sf).sum(dim=1) + (mu_st * g_st).sum(dim=1) + \
@@ -208,7 +230,7 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
 
             L_rho = obj + lam_h + mu_g + (rho / 2.0) * penalty
             
-            # C. Compute Gradient & Take Update Step
+            # Compute Gradient & Take Update Step
             grad_v, grad_pg, grad_qg = torch.autograd.grad(
                 L_rho.mean(), (v, pg, qg), create_graph=is_training, retain_graph=True
             )
@@ -220,28 +242,12 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
     # --------------------------------------------------------
     # 3. KKT PHYSICS LAYER EVALUATION (Post-Optimization)
     # --------------------------------------------------------
-    vp_f = quad_batch_stack(v, M_p); vq_f = quad_batch_stack(v, M_q)
-    pf_f = quad_batch_stack(v, M_pf); qf_f = quad_batch_stack(v, M_qf)
-    pt_f = quad_batch_stack(v, M_pt); qt_f = quad_batch_stack(v, M_qt)
-    vc_f = quad_batch_stack(v, M_c); vs_f = quad_batch_stack(v, M_s)
-    vv_f = quad_batch_stack(v, M_v)
+    (h_p_f, h_q_f, g_sf_f, g_st_f, g_ang_min_f, g_ang_max_f, g_v_max_f, g_v_min_f, 
+     g_pg_max_f, g_pg_min_f, g_qg_max_f, g_qg_min_f, obj_f) = evaluate_physics(v, pg, qg)
 
-    h_p_f = (pg @ C_g.T) - Pd_batch - vp_f
-    h_q_f = (qg @ C_g.T) - Qd_batch - vq_f
-    g_sf_f = (pf_f**2 + qf_f**2) - smax**2
-    g_st_f = (pt_f**2 + qt_f**2) - smax**2
-    g_ang_min_f = torch.tan(angmin) * vc_f - vs_f
-    g_ang_max_f = vs_f - torch.tan(angmax) * vc_f
-    g_v_max_f = vv_f - (Vmax**2)
-    g_v_min_f = (Vmin**2) - vv_f
-    g_pg_max_f = pg - pmax; g_pg_min_f = pmin - pg
-    g_qg_max_f = qg - qmax; g_qg_min_f = qmin - qg
-
-    # I. Primal Equality Loss (l_eq)
     loss_eq_p = h_p_f.pow(2).mean()
     loss_eq_q = h_q_f.pow(2).mean()
 
-    # II. Primal Inequality Loss (l_ineq)
     loss_ineq = (
         F.relu(g_sf_f).pow(2).mean() + F.relu(g_st_f).pow(2).mean() +
         F.relu(g_ang_min_f).pow(2).mean() + F.relu(g_ang_max_f).pow(2).mean() +
@@ -250,7 +256,6 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
         F.relu(g_qg_max_f).pow(2).mean() + F.relu(g_qg_min_f).pow(2).mean()
     )
 
-    # III. Complementary Slackness Loss (l_comp)
     cs_loss = (
         (mu_sf * g_sf_f).pow(2).mean() + (mu_st * g_st_f).pow(2).mean() +
         (mu_ang_max * g_ang_max_f).pow(2).mean() + (mu_ang_min * g_ang_min_f).pow(2).mean() +
@@ -259,7 +264,6 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
         (mu_qg_max * g_qg_max_f).pow(2).mean() + (mu_qg_min * g_qg_min_f).pow(2).mean()
     )
 
-    # IV. Dual Feasibility Loss (l_dual) enforcing mu >= 0
     dual_feas_loss = (
         F.relu(-mu_sf).pow(2).mean() + F.relu(-mu_st).pow(2).mean() +
         F.relu(-mu_ang_max).pow(2).mean() + F.relu(-mu_ang_min).pow(2).mean() +
@@ -268,12 +272,8 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
         F.relu(-mu_qg_max).pow(2).mean() + F.relu(-mu_qg_min).pow(2).mean()
     )
 
-    # V. Objective Loss (l_obj)
-    final_obj = (c2 * (pg ** 2) + c1 * pg + c0).sum(dim=1).mean()
+    final_obj = obj_f.mean()
 
-    # --------------------------------------------------------
-    # 4. TOTAL LOSS COMBINATION
-    # --------------------------------------------------------
     total_loss = (
         weights["primal_eq_p"] * loss_eq_p + 
         weights["primal_eq_q"] * loss_eq_q + 
@@ -283,7 +283,6 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
         weights["obj"] * final_obj
     )
 
-    # Diagnostics
     diagnostics = {
         "loss_total": total_loss.detach().item(),
         "loss_primal": (loss_eq_p + loss_eq_q + loss_ineq).detach().item(),
@@ -301,7 +300,6 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
     }
 
     return total_loss, diagnostics
-
 
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
@@ -345,14 +343,17 @@ if __name__ == "__main__":
     train_size = int(0.8 * actual_total_samples)
     val_size = int(0.1 * actual_total_samples)
     
-    train_Pd = problem["Pd_all"][:train_size].to(device)
-    train_Qd = problem["Qd_all"][:train_size].to(device)
-    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device)
-    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device)
+    train_Pd = problem["Pd_all"][:train_size].to(device=device, dtype=torch.float32)
+    train_Qd = problem["Qd_all"][:train_size].to(device=device, dtype=torch.float32)
+    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
+    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
 
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
-            problem[key] = value.to(device)
+            if value.is_floating_point():
+                problem[key] = value.to(device=device, dtype=torch.float32)
+            else:
+                problem[key] = value.to(device=device)
 
     # 3. Setup Dataset Pipeline
     batch_size = 1024 
@@ -369,6 +370,7 @@ if __name__ == "__main__":
         slack_imag_idx=slack_imag_idx
     ).to(device)
 
+    model_kkt = torch.compile(model_kkt)
     optimizer_kkt = optim.Adam(model_kkt.parameters(), lr=1e-3)
 
     # --- HARD KKT LOSS WEIGHTS ---
@@ -412,7 +414,7 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model_kkt.parameters(), 10.0)
             optimizer_kkt.step()
             
-        if epoch % 10 == 0:  
+        if epoch % 100 == 0:  
             model_kkt.eval()
             with torch.no_grad():
                 val_loss, val_diag = compute_hard_kkt_loss(model_kkt, val_Pd, val_Qd, problem, loss_weights_kkt)

@@ -317,7 +317,7 @@ if __name__ == "__main__":
         ngen=problem["ngen"],
         slack_imag_idx=slack_imag_idx
     ).to(device)
-
+    model_fsnet = torch.compile(model_fsnet)
     optimizer_fsnet = optim.Adam(model_fsnet.parameters(), lr=1e-3)
 
     # --- UPDATED FSNET LOSS WEIGHTS ---
