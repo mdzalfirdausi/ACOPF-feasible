@@ -13,8 +13,7 @@ import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 import os
-torch.set_default_dtype(torch.float32)
-torch.set_float32_matmul_precision('high')
+torch.set_default_dtype(torch.float64)
 
 # --- MODEL DEFINITION ---
 class baselineQCQPMLP(nn.Module):
@@ -91,81 +90,66 @@ def compute_qcqp_loss(model: nn.Module, Pd_batch: torch.Tensor, Qd_batch: torch.
     # Predict variables
     v, pg, qg = model(Pd_batch, Qd_batch, problem)
 
-    # --------------------------------------------------------
-    # A. PRIMAL EVALUATIONS (Graph / Branch-Incidence)
-    # --------------------------------------------------------
-    nbus = problem["nbus"]
-    f = problem["fbus"]
-    t = problem["tbus"]
-    
-    vr = v[:, :nbus]
-    vi = v[:, nbus:]
-    
-    # Extract voltages at connected buses
-    vr_f = vr[:, f]; vi_f = vi[:, f]
-    vr_t = vr[:, t]; vi_t = vi[:, t]
-    
-    vv_f = vr_f**2 + vi_f**2
-    vv_t = vr_t**2 + vi_t**2
-    
-    v_rt_cross = vr_f * vr_t + vi_f * vi_t
-    v_it_cross = vr_f * vi_t - vi_f * vr_t
-    
-    # 1. 1D Branch Flows
-    pf = problem["g11"] * vv_f - (problem["g12"] - problem["b21"]) * v_rt_cross + (problem["g21"] + problem["b12"]) * v_it_cross
-    qf = -problem["b11"] * vv_f + (problem["b12"] + problem["g21"]) * v_rt_cross + (problem["b21"] - problem["g12"]) * v_it_cross
-    pt = problem["g22"] * vv_t - (problem["g12"] + problem["b21"]) * v_rt_cross + (problem["g21"] - problem["b12"]) * v_it_cross
-    qt = -problem["b22"] * vv_t + (problem["b12"] - problem["g21"]) * v_rt_cross - (problem["b21"] + problem["g12"]) * v_it_cross
-    
-    # 2. Nodal Injections (Uses scatter_add)
-    vp = problem["Gs"] * (vr**2 + vi**2)
-    vq = -problem["Bs"] * (vr**2 + vi**2)
-    
-    f_exp = f.unsqueeze(0).expand(B, -1)
-    t_exp = t.unsqueeze(0).expand(B, -1)
-    
-    vp = vp.scatter_add(1, f_exp, pf)
-    vp = vp.scatter_add(1, t_exp, pt)
-    
-    vq = vq.scatter_add(1, f_exp, qf)
-    vq = vq.scatter_add(1, t_exp, qt)
-
-    # 3. Formulate Constraints
-    h_p = (pg @ problem["C_g"].T) - Pd_batch - vp
-    h_q = (qg @ problem["C_g"].T) - Qd_batch - vq
+    # Unpack Problem Matrices
+    M_p, M_q = problem["M_p"], problem["M_q"]
+    M_pf, M_qf = problem["M_pf"], problem["M_qf"]
+    M_pt, M_qt = problem["M_pt"], problem["M_qt"]
+    M_c, M_s, M_v = problem["M_c"], problem["M_s"], problem["M_v"]
+    C_g = problem["C_g"]
     
     smax = problem["smax"].unsqueeze(0).expand(B, -1)
-    g_sf = (pf**2 + qf**2) - smax**2
-    g_st = (pt**2 + qt**2) - smax**2
-    
-    angmin = problem["angmin"].unsqueeze(0).expand(B, -1)
     angmax = problem["angmax"].unsqueeze(0).expand(B, -1)
-    g_ang_min = torch.tan(angmin) * v_rt_cross - v_it_cross
-    g_ang_max = v_it_cross - torch.tan(angmax) * v_rt_cross
-    
-    vv = vr**2 + vi**2
-    Vmax = problem["Vmax"].unsqueeze(0).expand(B, -1)
+    angmin = problem["angmin"].unsqueeze(0).expand(B, -1)
     Vmin = problem["Vmin"].unsqueeze(0).expand(B, -1)
-    g_v_max = vv - Vmax**2
-    g_v_min = Vmin**2 - vv
+    Vmax = problem["Vmax"].unsqueeze(0).expand(B, -1)
     
     pmax = problem["pmax"].unsqueeze(0).expand(B, -1)
     pmin = problem["pmin"].unsqueeze(0).expand(B, -1)
     qmax = problem["qmax"].unsqueeze(0).expand(B, -1)
     qmin = problem["qmin"].unsqueeze(0).expand(B, -1)
+
+    c2 = problem["c2"].unsqueeze(0).expand(B, -1)
+    c1 = problem["c1"].unsqueeze(0).expand(B, -1)
+    c0 = problem["c0"].unsqueeze(0).expand(B, -1)
+
+    # Evaluate Quadratic Forms
+    vp = quad_batch_stack(v, M_p)
+    vq = quad_batch_stack(v, M_q)
+    
+    pf = quad_batch_stack(v, M_pf)
+    qf = quad_batch_stack(v, M_qf)
+    pt = quad_batch_stack(v, M_pt)
+    qt = quad_batch_stack(v, M_qt)
+    
+    vc = quad_batch_stack(v, M_c)
+    vs = quad_batch_stack(v, M_s)
+    vv = quad_batch_stack(v, M_v)
+
+    # Objective (Eq 2a)
+    cost_per_gen = c2 * (pg ** 2) + c1 * pg + c0
+    obj = cost_per_gen.sum(dim=1).mean()
+    
+    # Branch Thermal Limits
+    g_sf = (pf**2 + qf**2) - smax**2
+    g_st = (pt**2 + qt**2) - smax**2
+    
+    # Nodal Power Balance
+    h_p = (pg @ C_g.T) - Pd_batch - vp
+    h_q = (qg @ C_g.T) - Qd_batch - vq
     
     g_pg_max = pg - pmax
     g_pg_min = pmin - pg
     g_qg_max = qg - qmax
     g_qg_min = qmin - qg
 
-    # 4. Objective Cost
-    c2 = problem["c2"].unsqueeze(0).expand(B, -1)
-    c1 = problem["c1"].unsqueeze(0).expand(B, -1)
-    c0 = problem["c0"].unsqueeze(0).expand(B, -1)
-    cost_per_gen = c2 * (pg ** 2) + c1 * pg + c0
-    obj = cost_per_gen.sum(dim=1).mean()
-    
+    # Angle Difference Stability
+    g_ang_min = torch.tan(angmin) * vc - vs
+    g_ang_max = vs - torch.tan(angmax) * vc
+
+    # Voltage Magnitude Security
+    g_v_max = vv - (Vmax**2)
+    g_v_min = (Vmin**2) - vv
+
     # Compute Penalties
     loss_eq_p = h_p.pow(2).mean()
     loss_eq_q = h_q.pow(2).mean()
@@ -196,6 +180,7 @@ def compute_qcqp_loss(model: nn.Module, Pd_batch: torch.Tensor, Qd_batch: torch.
         ).detach().item()
     }
     return total_loss, diagnostics
+
 
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
@@ -255,26 +240,25 @@ if __name__ == "__main__":
         print(f"CRITICAL: Admittance topology dataset not found at target: {dataset_path}")
         sys.exit(1)
 
-    # 2. Extract Data Split Slices & Cast to Float32
+    # 2. Extract Data Split Slices
     actual_total_samples = problem["Pd_all"].shape[0] 
     train_size = int(0.8 * actual_total_samples)
     val_size = int(0.1 * actual_total_samples)
 
     print(f"Problem Geometry Linked -> Matrix Samples: {actual_total_samples}")
     
-    # Slice arrays, cast to float32, and deploy to target device
-    train_Pd = problem["Pd_all"][:train_size].to(device=device, dtype=torch.float32)
-    train_Qd = problem["Qd_all"][:train_size].to(device=device, dtype=torch.float32)
-    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
-    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
+    # Slice arrays and ensure deployment to the designated target device
+    train_Pd = problem["Pd_all"][:train_size].to(device, dtype=torch.float64)
+    train_Qd = problem["Qd_all"][:train_size].to(device, dtype=torch.float64)
 
-    # Transition background system tensors to matching device AND float32 precision
+    # --- Slice VAL arrays and deploy to the target device ---
+    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device, dtype=torch.float64)
+    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device, dtype=torch.float64)
+
+    # Transition background system tensors to matching target device
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
-            if value.is_floating_point():
-                problem[key] = value.to(device=device, dtype=torch.float32)
-            else:
-                problem[key] = value.to(device=device)
+            problem[key] = value.to(device, dtype=torch.float64)
 
     # 3. Setup Dataset Pipeline
     batch_size = 1024 
@@ -288,10 +272,7 @@ if __name__ == "__main__":
         nbus=problem["nbus"],
         ngen=problem["ngen"],
         slack_imag_idx=slack_imag_idx
-    ).to(device)
-    
-    # Compile the model for fused CUDA kernels
-    model = torch.compile(model)
+    ).to(device, dtype=torch.float64)
 
     loss_weights = {
         "eq_p": 1000.0,
