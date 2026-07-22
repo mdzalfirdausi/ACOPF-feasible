@@ -13,8 +13,8 @@ import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 
-# torch.set_default_dtype(torch.float64)
-
+torch.set_default_dtype(torch.float32)
+torch.set_float32_matmul_precision('high')
 # --- MODEL DEFINITION --- 
 # IMPORTANT: Paste your exact RahulSinglePINN_Smax class definition here!
 class RahulSinglePINN_Smax(nn.Module):
@@ -335,24 +335,26 @@ if __name__ == "__main__":
         print(f"CRITICAL: Admittance topology dataset not found at target: {dataset_path}")
         sys.exit(1)
 
-    # 2. Extract Data Split Slices
+    # 2. Extract Data Split Slices & Cast to Float32
     actual_total_samples = problem["Pd_all"].shape[0] 
     train_size = int(0.8 * actual_total_samples)
     val_size = int(0.1 * actual_total_samples)
 
     print(f"Problem Geometry Linked -> Matrix Samples: {actual_total_samples}")
     
-    # Slice arrays and ensure deployment to the designated target device
-    train_Pd = problem["Pd_all"][:train_size].to(device)
-    train_Qd = problem["Qd_all"][:train_size].to(device)
-    # --- Slice VAL arrays and deploy to the target device ---
-    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device)
-    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device)
+    # Slice arrays, cast to float32, and deploy to target device
+    train_Pd = problem["Pd_all"][:train_size].to(device=device, dtype=torch.float32)
+    train_Qd = problem["Qd_all"][:train_size].to(device=device, dtype=torch.float32)
+    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
+    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
 
-    # Transition background system tensors to matching target device
+    # Transition background system tensors to matching device AND float32 precision
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
-            problem[key] = value.to(device)
+            if value.is_floating_point():
+                problem[key] = value.to(device=device, dtype=torch.float32)
+            else:
+                problem[key] = value.to(device=device)
 
     # 3. Setup Dataset Pipeline
     batch_size = 1024 
@@ -365,7 +367,7 @@ if __name__ == "__main__":
         ngen=problem["ngen"],
         nbranch=problem["nbranch"]
     ).to(device)
-
+    model_rahul = torch.compile(model_rahul)
     loss_weights_rahul = {
     "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
     "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
@@ -406,7 +408,7 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model_rahul.parameters(), 10.0)
             optimizer_rahul.step()
             
-        if epoch % 10 == 0:  
+        if epoch % 100 == 0:  
             # 1. Switch to evaluation mode and freeze gradients
             model_rahul.eval()
             with torch.no_grad():
@@ -424,6 +426,7 @@ if __name__ == "__main__":
             print(f"Epoch {epoch:4d} | Val Loss: {val_loss:.4f} | Val Cost: {val_diag['obj_cost']:7.2f} | "
                   f"Val Max P-Miss: {val_diag['max_h_p']:.4f} | Val Max Q-Miss: {val_diag['max_h_q']:.4f} | "
                   f"Val Max Gen Viol: {val_diag['max_gen_viol']:.4f} | Val Max Thermal: {val_diag['max_thermal']:.4f}{saved_flag}")
+    
     end_time = time.time()
     total_time_seconds = end_time - start_time
     # Format into Hours, Minutes, and Seconds

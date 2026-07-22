@@ -71,7 +71,9 @@ Qd = case['bus'].Qd.values / baseMVA
 # --- ADD THIS: Extract nominal voltage magnitude and angle (in radians) ---
 Vm = case['bus']['Vm'].values
 Va = np.radians(case['bus']['Va'].values)
-
+# --- ADD THIS: Extract 0-based From-Bus and To-Bus indexing vectors ---
+fbus = case['branch']['bus_i'].values.astype(np.int64) - 1
+tbus = case['branch']['bus_j'].values.astype(np.int64) - 1
 # State vector dimension D = 2 * |B|
 D = 2 * nbus
 
@@ -89,111 +91,6 @@ b12 = b * np.cos(theta_shift) / tau
 b21 = b * np.sin(theta_shift) / tau
 b22 = b + bc/2
 
-for l in range(nbranch):
-    # Python uses 0-based indexing; your dictionary offset to 1-based, so we subtract 1
-    i = int(case['branch']['bus_i'].values[l]) - 1
-    j = int(case['branch']['bus_j'].values[l]) - 1
-    
-    # Real and Imaginary indices
-    i_B = i + nbus
-    j_B = j + nbus
-
-    # --- FROM END ---
-    A_pf = np.zeros((D, D))
-    A_pf[i, i] = g11[l]
-    A_pf[i_B, i_B] = g11[l]
-    A_pf[i, j] = -(g12[l] - b21[l])
-    A_pf[i_B, j_B] = -(g12[l] - b21[l])
-    A_pf[i, j_B] = (g21[l] + b12[l])
-    A_pf[i_B, j] = -(g21[l] + b12[l])
-    M_pf.append(0.5 * (A_pf + A_pf.T))
-
-    A_qf = np.zeros((D, D))
-    A_qf[i, i] = -b11[l]
-    A_qf[i_B, i_B] = -b11[l]
-    A_qf[i, j] = (b12[l] + g21[l])
-    A_qf[i_B, j_B] = (b12[l] + g21[l])
-    A_qf[i, j_B] = -(b21[l] - g12[l])
-    A_qf[i_B, j] = (b21[l] - g12[l])
-    M_qf.append(0.5 * (A_qf + A_qf.T))
-
-    # --- TO END ---
-    A_pt = np.zeros((D, D))
-    A_pt[j, j] = g22[l]
-    A_pt[j_B, j_B] = g22[l]
-    A_pt[j, i] = -(g12[l] + b21[l])
-    A_pt[j_B, i_B] = -(g12[l] + b21[l])
-    A_pt[j, i_B] = -(g21[l] - b12[l])
-    A_pt[j_B, i] = (g21[l] - b12[l])
-    M_pt.append(0.5 * (A_pt + A_pt.T))
-
-    A_qt = np.zeros((D, D))
-    A_qt[j, j] = -b22[l]
-    A_qt[j_B, j_B] = -b22[l]
-    A_qt[j, i] = (b12[l] - g21[l])
-    A_qt[j_B, i_B] = (b12[l] - g21[l])
-    A_qt[j, i_B] = (b21[l] + g12[l])
-    A_qt[j_B, i] = -(b21[l] + g12[l])
-    M_qt.append(0.5 * (A_qt + A_qt.T))
-    
-# ------------------------------------------------------------
-# 2. Nodal Power Injection Matrices (Guaranteed Consistency)
-# ------------------------------------------------------------
-# Initialize empty matrices
-M_p = [np.zeros((D, D)) for _ in range(nbus)]
-M_q = [np.zeros((D, D)) for _ in range(nbus)]
-
-# Add Nodal Shunts
-for i in range(nbus):
-    # Active power shunt (V^2 * Gs)
-    M_p[i][i, i] = Gs[i]
-    M_p[i][i+nbus, i+nbus] = Gs[i]
-    # Reactive power shunt (V^2 * -Bs)
-    M_q[i][i, i] = -Bs[i]
-    M_q[i][i+nbus, i+nbus] = -Bs[i]
-
-# Add Branch Flows
-# Nodal injection must exactly equal the sum of outgoing/incoming flows
-for l in range(nbranch):
-    from_bus = int(case['branch']['bus_i'].values[l]) - 1
-    to_bus = int(case['branch']['bus_j'].values[l]) - 1
-    
-    # Add flow leaving the 'from' bus
-    M_p[from_bus] += M_pf[l]
-    M_q[from_bus] += M_qf[l]
-    
-    # Add flow leaving the 'to' bus
-    M_p[to_bus] += M_pt[l]
-    M_q[to_bus] += M_qt[l]
-
-M_c = []; M_s = []
-
-for l in range(nbranch):
-    i = int(case['branch']['bus_i'].values[l]) - 1
-    j = int(case['branch']['bus_j'].values[l]) - 1
-    i_B = i + nbus
-    j_B = j + nbus
-
-    # Angle Cosine Extraction (Eq 29 & 30)
-    A_c = np.zeros((D, D))
-    A_c[i, j] = 1
-    A_c[i_B, j_B] = 1
-    M_c.append(0.5 * (A_c + A_c.T))
-
-    # Angle Sine Extraction (Eq 31 & 32)
-    A_s = np.zeros((D, D))
-    A_s[i_B, j] = 1
-    A_s[i, j_B] = -1
-    M_s.append(0.5 * (A_s + A_s.T))
-
-M_V = []
-for i in range(nbus):
-    # Voltage Magnitude Extraction (Eq 33 & 34)
-    A_V = np.zeros((D, D))
-    A_V[i, i] = 1
-    A_V[i + nbus, i + nbus] = 1
-    M_V.append(A_V) # Already symmetric
-
 # Identify the slack bus (MATPOWER sets bus type to 3 for slack)
 slack_bus_idx = case['bus'][case['bus']['type'] == 3].index[0]
 
@@ -201,46 +98,153 @@ a_ref = np.zeros(D)
 # Force the imaginary voltage component of the slack bus to 0
 a_ref[slack_bus_idx + nbus] = 1
 
-# ------------------------------------------------------------
-# 1) Dimensions
-# ------------------------------------------------------------
-# These match the sizes from your MATPOWER data
-nbus = nbus
-ngen = ngen
-nbranch = nbranch
-d = D
+# for l in range(nbranch):
+#     # Python uses 0-based indexing; your dictionary offset to 1-based, so we subtract 1
+#     i = int(case['branch']['bus_i'].values[l]) - 1
+#     j = int(case['branch']['bus_j'].values[l]) - 1
+    
+#     # Real and Imaginary indices
+#     i_B = i + nbus
+#     j_B = j + nbus
 
-# ------------------------------------------------------------
-# 2) Stack quadratic matrices (For ALL buses and branches)
-# ------------------------------------------------------------
-# Nodal power and voltage matrices [nbus, d, d]
-M_p_stack = torch.stack([torch.as_tensor(M_p[i], dtype=dtype, device=device) for i in range(nbus)])
-M_q_stack = torch.stack([torch.as_tensor(M_q[i], dtype=dtype, device=device) for i in range(nbus)])
-M_v_stack = torch.stack([torch.as_tensor(M_V[i], dtype=dtype, device=device) for i in range(nbus)])
+#     # --- FROM END ---
+#     A_pf = np.zeros((D, D))
+#     A_pf[i, i] = g11[l]
+#     A_pf[i_B, i_B] = g11[l]
+#     A_pf[i, j] = -(g12[l] - b21[l])
+#     A_pf[i_B, j_B] = -(g12[l] - b21[l])
+#     A_pf[i, j_B] = (g21[l] + b12[l])
+#     A_pf[i_B, j] = -(g21[l] + b12[l])
+#     M_pf.append(0.5 * (A_pf + A_pf.T))
 
-# Branch flow matrices [nbranch, d, d]
-M_pf_stack = torch.stack([torch.as_tensor(M_pf[l], dtype=dtype, device=device) for l in range(nbranch)])
-M_qf_stack = torch.stack([torch.as_tensor(M_qf[l], dtype=dtype, device=device) for l in range(nbranch)])
-M_pt_stack = torch.stack([torch.as_tensor(M_pt[l], dtype=dtype, device=device) for l in range(nbranch)])
-M_qt_stack = torch.stack([torch.as_tensor(M_qt[l], dtype=dtype, device=device) for l in range(nbranch)])
+#     A_qf = np.zeros((D, D))
+#     A_qf[i, i] = -b11[l]
+#     A_qf[i_B, i_B] = -b11[l]
+#     A_qf[i, j] = (b12[l] + g21[l])
+#     A_qf[i_B, j_B] = (b12[l] + g21[l])
+#     A_qf[i, j_B] = -(b21[l] - g12[l])
+#     A_qf[i_B, j] = (b21[l] - g12[l])
+#     M_qf.append(0.5 * (A_qf + A_qf.T))
 
-# Angle difference matrices [nbranch, d, d]
-M_c_stack = torch.stack([torch.as_tensor(M_c[l], dtype=dtype, device=device) for l in range(nbranch)])
-M_s_stack = torch.stack([torch.as_tensor(M_s[l], dtype=dtype, device=device) for l in range(nbranch)])
+#     # --- TO END ---
+#     A_pt = np.zeros((D, D))
+#     A_pt[j, j] = g22[l]
+#     A_pt[j_B, j_B] = g22[l]
+#     A_pt[j, i] = -(g12[l] + b21[l])
+#     A_pt[j_B, i_B] = -(g12[l] + b21[l])
+#     A_pt[j, i_B] = -(g21[l] - b12[l])
+#     A_pt[j_B, i] = (g21[l] - b12[l])
+#     M_pt.append(0.5 * (A_pt + A_pt.T))
 
-# ------------------------------------------------------------
-# 3) Symmetrize matrices (Required for stable Autograd)
-# ------------------------------------------------------------
-M_p_stack = 0.5 * (M_p_stack + M_p_stack.transpose(-1, -2))
-M_q_stack = 0.5 * (M_q_stack + M_q_stack.transpose(-1, -2))
-M_v_stack = 0.5 * (M_v_stack + M_v_stack.transpose(-1, -2))
+#     A_qt = np.zeros((D, D))
+#     A_qt[j, j] = -b22[l]
+#     A_qt[j_B, j_B] = -b22[l]
+#     A_qt[j, i] = (b12[l] - g21[l])
+#     A_qt[j_B, i_B] = (b12[l] - g21[l])
+#     A_qt[j, i_B] = (b21[l] + g12[l])
+#     A_qt[j_B, i] = -(b21[l] + g12[l])
+#     M_qt.append(0.5 * (A_qt + A_qt.T))
+    
+# # ------------------------------------------------------------
+# # 2. Nodal Power Injection Matrices (Guaranteed Consistency)
+# # ------------------------------------------------------------
+# # Initialize empty matrices
+# M_p = [np.zeros((D, D)) for _ in range(nbus)]
+# M_q = [np.zeros((D, D)) for _ in range(nbus)]
 
-M_pf_stack = 0.5 * (M_pf_stack + M_pf_stack.transpose(-1, -2))
-M_qf_stack = 0.5 * (M_qf_stack + M_qf_stack.transpose(-1, -2))
-M_pt_stack = 0.5 * (M_pt_stack + M_pt_stack.transpose(-1, -2))
-M_qt_stack = 0.5 * (M_qt_stack + M_qt_stack.transpose(-1, -2))
-M_c_stack = 0.5 * (M_c_stack + M_c_stack.transpose(-1, -2))
-M_s_stack = 0.5 * (M_s_stack + M_s_stack.transpose(-1, -2))
+# # Add Nodal Shunts
+# for i in range(nbus):
+#     # Active power shunt (V^2 * Gs)
+#     M_p[i][i, i] = Gs[i]
+#     M_p[i][i+nbus, i+nbus] = Gs[i]
+#     # Reactive power shunt (V^2 * -Bs)
+#     M_q[i][i, i] = -Bs[i]
+#     M_q[i][i+nbus, i+nbus] = -Bs[i]
+
+# # Add Branch Flows
+# # Nodal injection must exactly equal the sum of outgoing/incoming flows
+# for l in range(nbranch):
+#     from_bus = int(case['branch']['bus_i'].values[l]) - 1
+#     to_bus = int(case['branch']['bus_j'].values[l]) - 1
+    
+#     # Add flow leaving the 'from' bus
+#     M_p[from_bus] += M_pf[l]
+#     M_q[from_bus] += M_qf[l]
+    
+#     # Add flow leaving the 'to' bus
+#     M_p[to_bus] += M_pt[l]
+#     M_q[to_bus] += M_qt[l]
+
+# M_c = []; M_s = []
+
+# for l in range(nbranch):
+#     i = int(case['branch']['bus_i'].values[l]) - 1
+#     j = int(case['branch']['bus_j'].values[l]) - 1
+#     i_B = i + nbus
+#     j_B = j + nbus
+
+#     # Angle Cosine Extraction (Eq 29 & 30)
+#     A_c = np.zeros((D, D))
+#     A_c[i, j] = 1
+#     A_c[i_B, j_B] = 1
+#     M_c.append(0.5 * (A_c + A_c.T))
+
+#     # Angle Sine Extraction (Eq 31 & 32)
+#     A_s = np.zeros((D, D))
+#     A_s[i_B, j] = 1
+#     A_s[i, j_B] = -1
+#     M_s.append(0.5 * (A_s + A_s.T))
+
+# M_V = []
+# for i in range(nbus):
+#     # Voltage Magnitude Extraction (Eq 33 & 34)
+#     A_V = np.zeros((D, D))
+#     A_V[i, i] = 1
+#     A_V[i + nbus, i + nbus] = 1
+#     M_V.append(A_V) # Already symmetric
+
+
+
+# # ------------------------------------------------------------
+# # 1) Dimensions
+# # ------------------------------------------------------------
+# # These match the sizes from your MATPOWER data
+# nbus = nbus
+# ngen = ngen
+# nbranch = nbranch
+# d = D
+
+# # ------------------------------------------------------------
+# # 2) Stack quadratic matrices (For ALL buses and branches)
+# # ------------------------------------------------------------
+# # Nodal power and voltage matrices [nbus, d, d]
+# M_p_stack = torch.stack([torch.as_tensor(M_p[i], dtype=dtype, device=device) for i in range(nbus)])
+# M_q_stack = torch.stack([torch.as_tensor(M_q[i], dtype=dtype, device=device) for i in range(nbus)])
+# M_v_stack = torch.stack([torch.as_tensor(M_V[i], dtype=dtype, device=device) for i in range(nbus)])
+
+# # Branch flow matrices [nbranch, d, d]
+# M_pf_stack = torch.stack([torch.as_tensor(M_pf[l], dtype=dtype, device=device) for l in range(nbranch)])
+# M_qf_stack = torch.stack([torch.as_tensor(M_qf[l], dtype=dtype, device=device) for l in range(nbranch)])
+# M_pt_stack = torch.stack([torch.as_tensor(M_pt[l], dtype=dtype, device=device) for l in range(nbranch)])
+# M_qt_stack = torch.stack([torch.as_tensor(M_qt[l], dtype=dtype, device=device) for l in range(nbranch)])
+
+# # Angle difference matrices [nbranch, d, d]
+# M_c_stack = torch.stack([torch.as_tensor(M_c[l], dtype=dtype, device=device) for l in range(nbranch)])
+# M_s_stack = torch.stack([torch.as_tensor(M_s[l], dtype=dtype, device=device) for l in range(nbranch)])
+
+# # ------------------------------------------------------------
+# # 3) Symmetrize matrices (Required for stable Autograd)
+# # ------------------------------------------------------------
+# M_p_stack = 0.5 * (M_p_stack + M_p_stack.transpose(-1, -2))
+# M_q_stack = 0.5 * (M_q_stack + M_q_stack.transpose(-1, -2))
+# M_v_stack = 0.5 * (M_v_stack + M_v_stack.transpose(-1, -2))
+
+# M_pf_stack = 0.5 * (M_pf_stack + M_pf_stack.transpose(-1, -2))
+# M_qf_stack = 0.5 * (M_qf_stack + M_qf_stack.transpose(-1, -2))
+# M_pt_stack = 0.5 * (M_pt_stack + M_pt_stack.transpose(-1, -2))
+# M_qt_stack = 0.5 * (M_qt_stack + M_qt_stack.transpose(-1, -2))
+# M_c_stack = 0.5 * (M_c_stack + M_c_stack.transpose(-1, -2))
+# M_s_stack = 0.5 * (M_s_stack + M_s_stack.transpose(-1, -2))
 
 # ------------------------------------------------------------
 # 4) The C_g Matrix (Mapping Generators to Buses)
@@ -278,46 +282,104 @@ Va_arr = np.asarray(Va, dtype=np.float32)
 # ------------------------------------------------------------
 # 6) Final problem dictionary for the PINN loss
 # ------------------------------------------------------------
-problem = {
-    # Quadratic Matrices
-    "M_p": M_p_stack,
-    "M_q": M_q_stack,
-    "M_v": M_v_stack,
-    "M_pf": M_pf_stack,
-    "M_qf": M_qf_stack,
-    "M_pt": M_pt_stack,
-    "M_qt": M_qt_stack,
-    "M_c": M_c_stack,
-    "M_s": M_s_stack,
+# problem = {
+#     # Quadratic Matrices
+#     "M_p": M_p_stack,
+#     "M_q": M_q_stack,
+#     "M_v": M_v_stack,
+#     "M_pf": M_pf_stack,
+#     "M_qf": M_qf_stack,
+#     "M_pt": M_pt_stack,
+#     "M_qt": M_qt_stack,
+#     "M_c": M_c_stack,
+#     "M_s": M_s_stack,
 
-    # Incidence Matrix
+#     # Incidence Matrix
+#     "C_g": C_g,
+
+#     # Base Vectors
+#     "Pd": torch.as_tensor(Pd_bus, dtype=dtype, device=device),
+#     "Qd": torch.as_tensor(Qd_bus, dtype=dtype, device=device),
+    
+#     "pmax": torch.as_tensor(pmax, dtype=dtype, device=device),
+#     "pmin": torch.as_tensor(pmin, dtype=dtype, device=device),
+#     "qmax": torch.as_tensor(qmax, dtype=dtype, device=device),
+#     "qmin": torch.as_tensor(qmin, dtype=dtype, device=device),
+    
+#     "smax": torch.as_tensor(smax, dtype=dtype, device=device),
+#     "angmax": torch.as_tensor(angmax, dtype=dtype, device=device),
+#     "angmin": torch.as_tensor(angmin, dtype=dtype, device=device),
+    
+#     "Vmax": torch.as_tensor(Vmax_arr, dtype=dtype, device=device),
+#     "Vmin": torch.as_tensor(Vmin_arr, dtype=dtype, device=device),
+#     # --- ADD THIS: Export nominal setpoints to the .pt file ---
+#     "Vm": torch.as_tensor(Vm_arr, dtype=dtype, device=device),
+#     "Va": torch.as_tensor(Va_arr, dtype=dtype, device=device),
+#     # Add the cost coefficients
+#     "c2": torch.tensor(c2, dtype=dtype, device=device),
+#     "c1": torch.tensor(c1, dtype=dtype, device=device),
+#     "c0": torch.tensor(c0, dtype=dtype, device=device),
+        
+#     # Anchor vector (Ensure a_ref from our earlier discussion is defined)
+#     "a_ref": torch.as_tensor(a_ref, dtype=dtype, device=device),
+
+#     # Metadata
+#     "nbus": nbus,
+#     "ngen": ngen,
+#     "nbranch": nbranch
+# }
+
+# ------------------------------------------------------------
+# 6) Final problem dictionary for Graph / Branch-Incidence PINN
+# ------------------------------------------------------------
+problem = {
+    # Nodal Shunts & Anchor
+    "Gs": torch.as_tensor(Gs, dtype=dtype, device=device),
+    "Bs": torch.as_tensor(Bs, dtype=dtype, device=device),
+    "a_ref": torch.as_tensor(a_ref, dtype=dtype, device=device),
+
+    # Graph Topology / Line Indexing (Long tensors for indexing)
+    "fbus": torch.as_tensor(fbus, dtype=torch.long, device=device),
+    "tbus": torch.as_tensor(tbus, dtype=torch.long, device=device),
+
+    # 1D Branch Conductance & Susceptance Parameters
+    "g11": torch.as_tensor(g11, dtype=dtype, device=device),
+    "g12": torch.as_tensor(g12, dtype=dtype, device=device),
+    "g21": torch.as_tensor(g21, dtype=dtype, device=device),
+    "g22": torch.as_tensor(g22, dtype=dtype, device=device),
+    "b11": torch.as_tensor(b11, dtype=dtype, device=device),
+    "b12": torch.as_tensor(b12, dtype=dtype, device=device),
+    "b21": torch.as_tensor(b21, dtype=dtype, device=device),
+    "b22": torch.as_tensor(b22, dtype=dtype, device=device),
+
+    # Incidence Matrix (Keep for Nodal Generation mapping)
     "C_g": C_g,
 
-    # Base Vectors
+    # Nodal Demands
     "Pd": torch.as_tensor(Pd_bus, dtype=dtype, device=device),
     "Qd": torch.as_tensor(Qd_bus, dtype=dtype, device=device),
     
+    # Generator Limits
     "pmax": torch.as_tensor(pmax, dtype=dtype, device=device),
     "pmin": torch.as_tensor(pmin, dtype=dtype, device=device),
     "qmax": torch.as_tensor(qmax, dtype=dtype, device=device),
     "qmin": torch.as_tensor(qmin, dtype=dtype, device=device),
     
+    # Line Thermal & Angle Limits
     "smax": torch.as_tensor(smax, dtype=dtype, device=device),
     "angmax": torch.as_tensor(angmax, dtype=dtype, device=device),
     "angmin": torch.as_tensor(angmin, dtype=dtype, device=device),
     
+    # Voltage Limits & Nominal Setpoints
     "Vmax": torch.as_tensor(Vmax_arr, dtype=dtype, device=device),
     "Vmin": torch.as_tensor(Vmin_arr, dtype=dtype, device=device),
-    # --- ADD THIS: Export nominal setpoints to the .pt file ---
     "Vm": torch.as_tensor(Vm_arr, dtype=dtype, device=device),
     "Va": torch.as_tensor(Va_arr, dtype=dtype, device=device),
-    # Add the cost coefficients
+    
+    # Cost Coefficients
     "c2": torch.tensor(c2, dtype=dtype, device=device),
     "c1": torch.tensor(c1, dtype=dtype, device=device),
     "c0": torch.tensor(c0, dtype=dtype, device=device),
-        
-    # Anchor vector (Ensure a_ref from our earlier discussion is defined)
-    "a_ref": torch.as_tensor(a_ref, dtype=dtype, device=device),
 
     # Metadata
     "nbus": nbus,
@@ -329,12 +391,12 @@ print("Constructed PINN problem data for QCQP:")
 print(f"  nbus    = {nbus}")
 print(f"  ngen    = {ngen}")
 print(f"  nbranch = {nbranch}")
-print(f"  M_pf, M_qf shape = {tuple(problem['M_pf'].shape)}, {tuple(problem['M_qf'].shape)}")
-print(f"  M_pt, M_qt shape = {tuple(problem['M_pt'].shape)}, {tuple(problem['M_qt'].shape)}")
-print(f"  C_g shape  = {tuple(problem['C_g'].shape)}")
-print(f"  M_p, M_q shape  = {tuple(problem['M_p'].shape)}, {tuple(problem['M_q'].shape)}")
-print(f"  M_s, M_c shape  = {tuple(problem['M_s'].shape)}, {tuple(problem['M_c'].shape)}")
-print(f"  M_V shape  = {tuple(problem['M_v'].shape)}")
+# print(f"  M_pf, M_qf shape = {tuple(problem['M_pf'].shape)}, {tuple(problem['M_qf'].shape)}")
+# print(f"  M_pt, M_qt shape = {tuple(problem['M_pt'].shape)}, {tuple(problem['M_qt'].shape)}")
+# print(f"  C_g shape  = {tuple(problem['C_g'].shape)}")
+# print(f"  M_p, M_q shape  = {tuple(problem['M_p'].shape)}, {tuple(problem['M_q'].shape)}")
+# print(f"  M_s, M_c shape  = {tuple(problem['M_s'].shape)}, {tuple(problem['M_c'].shape)}")
+# print(f"  M_V shape  = {tuple(problem['M_v'].shape)}")
 
 total_samples = args.samples
  
@@ -355,8 +417,8 @@ def generate_and_save_dataset(problem, total_samples=10000, save_path="acopf_pro
     print(f"Generating {total_samples} static samples...")
     
     # Generate the full batch of demands (clamping Pd to 0, leaving Qd unclamped)
-    Pd_all = gaussian_batch(problem["Pd"], batch_size=total_samples, variation_std=0.0)
-    Qd_all = gaussian_batch(problem["Qd"], batch_size=total_samples, variation_std=0.0)
+    Pd_all = gaussian_batch(problem["Pd"], batch_size=total_samples, variation_std=0.05)
+    Qd_all = gaussian_batch(problem["Qd"], batch_size=total_samples, variation_std=0.05)
     
     # Attach the full generated datasets directly to the problem dictionary
     problem["Pd_all"] = Pd_all
