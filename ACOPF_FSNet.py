@@ -12,7 +12,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
+torch.set_float32_matmul_precision('high')
 
 # --- MODEL DEFINITION ---
 class baselineQCQPMLP(nn.Module):
@@ -85,10 +86,6 @@ class baselineQCQPMLP(nn.Module):
 
         return v, pg, qg
 
-# --- UTILS & LOSS FUNCTIONS ---
-def batch_Mv(M: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-    return torch.einsum('kij,bj->bki', M, v)
-
 def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
     return torch.einsum("bi,kij,bj->bk", v, M, v)
 
@@ -100,25 +97,74 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
     # --------------------------------------------------------
     v_0, pg_0, qg_0 = model(Pd_batch, Qd_batch, problem)
 
-    # Unpack Problem Matrices
-    M_p, M_q = problem["M_p"], problem["M_q"]
-    M_pf, M_qf = problem["M_pf"], problem["M_qf"]
-    M_pt, M_qt = problem["M_pt"], problem["M_qt"]
-    M_c, M_s, M_v = problem["M_c"], problem["M_s"], problem["M_v"]
-    C_g = problem["C_g"]
+    nbus = problem["nbus"]
+    f = problem["fbus"]
+    t = problem["tbus"]
+    f_exp = f.unsqueeze(0).expand(B, -1)
+    t_exp = t.unsqueeze(0).expand(B, -1)
     
-    smax = problem["smax"].unsqueeze(0).expand(B, -1)
-    angmax = problem["angmax"].unsqueeze(0).expand(B, -1)
+    # Pre-expand fixed limits to avoid redundant operations in the loop
+    smax2 = problem["smax"]**2
+    Vmax2 = problem["Vmax"]**2
+    Vmin2 = problem["Vmin"]**2
     angmin = problem["angmin"].unsqueeze(0).expand(B, -1)
-    Vmin = problem["Vmin"].unsqueeze(0).expand(B, -1)
-    Vmax = problem["Vmax"].unsqueeze(0).expand(B, -1)
+    angmax = problem["angmax"].unsqueeze(0).expand(B, -1)
     pmax = problem["pmax"].unsqueeze(0).expand(B, -1)
     pmin = problem["pmin"].unsqueeze(0).expand(B, -1)
     qmax = problem["qmax"].unsqueeze(0).expand(B, -1)
     qmin = problem["qmin"].unsqueeze(0).expand(B, -1)
-    c2 = problem["c2"].unsqueeze(0).expand(B, -1)
-    c1 = problem["c1"].unsqueeze(0).expand(B, -1)
-    c0 = problem["c0"].unsqueeze(0).expand(B, -1) if "c0" in problem else 0.0
+
+    # --- Nested Helper to Evaluate Physics for Graph-Incidence ---
+    def evaluate_physics(v_curr, pg_curr, qg_curr):
+        vr = v_curr[:, :nbus]; vi = v_curr[:, nbus:]
+        vr_f = vr[:, f]; vi_f = vi[:, f]
+        vr_t = vr[:, t]; vi_t = vi[:, t]
+        
+        vv_f = vr_f**2 + vi_f**2
+        vv_t = vr_t**2 + vi_t**2
+        v_rt_cross = vr_f * vr_t + vi_f * vi_t
+        v_it_cross = vr_f * vi_t - vi_f * vr_t
+        
+        # 1D Branch Flows
+        pf = problem["g11"] * vv_f - (problem["g12"] - problem["b21"]) * v_rt_cross + (problem["g21"] + problem["b12"]) * v_it_cross
+        qf = -problem["b11"] * vv_f + (problem["b12"] + problem["g21"]) * v_rt_cross + (problem["b21"] - problem["g12"]) * v_it_cross
+        pt = problem["g22"] * vv_t - (problem["g12"] + problem["b21"]) * v_rt_cross + (problem["g21"] - problem["b12"]) * v_it_cross
+        qt = -problem["b22"] * vv_t + (problem["b12"] - problem["g21"]) * v_rt_cross - (problem["b21"] + problem["g12"]) * v_it_cross
+        
+        # Nodal Injections via scatter_add
+        vp = problem["Gs"] * (vr**2 + vi**2)
+        vq = -problem["Bs"] * (vr**2 + vi**2)
+        vp = vp.scatter_add(1, f_exp, pf)
+        vp = vp.scatter_add(1, t_exp, pt)
+        vq = vq.scatter_add(1, f_exp, qf)
+        vq = vq.scatter_add(1, t_exp, qt)
+
+        # Formulate Constraints
+        h_p_out = (pg_curr @ problem["C_g"].T) - Pd_batch - vp
+        h_q_out = (qg_curr @ problem["C_g"].T) - Qd_batch - vq
+        g_sf_out = (pf**2 + qf**2) - smax2
+        g_st_out = (pt**2 + qt**2) - smax2
+        g_ang_min_out = torch.tan(angmin) * v_rt_cross - v_it_cross
+        g_ang_max_out = v_it_cross - torch.tan(angmax) * v_rt_cross
+        
+        vv = vr**2 + vi**2
+        g_v_max_out = vv - Vmax2
+        g_v_min_out = Vmin2 - vv
+        
+        # Generator limits (gradient descent can push variables past NN bounds)
+        g_pg_max_out = pg_curr - pmax
+        g_pg_min_out = pmin - pg_curr
+        g_qg_max_out = qg_curr - qmax
+        g_qg_min_out = qmin - qg_curr
+        
+        # Objective calculation
+        c2 = problem["c2"].unsqueeze(0).expand(B, -1)
+        c1 = problem["c1"].unsqueeze(0).expand(B, -1)
+        c0 = problem["c0"].unsqueeze(0).expand(B, -1) if "c0" in problem else 0.0
+        obj_cost = (c2 * (pg_curr ** 2) + c1 * pg_curr + c0).sum(dim=1).mean()
+        
+        return (h_p_out, h_q_out, g_sf_out, g_st_out, g_ang_min_out, g_ang_max_out, 
+                g_v_max_out, g_v_min_out, g_pg_max_out, g_pg_min_out, g_qg_max_out, g_qg_min_out, obj_cost)
 
     # --------------------------------------------------------
     # 2. FSNET FEASIBILITY SEEKING (Differentiable Inner Loop)
@@ -131,30 +177,15 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
         pg = pg_0.detach().requires_grad_(True)
         qg = qg_0.detach().requires_grad_(True)
     else:
-        # During training, keep the variables connected to the network's computation graph
+        # During training, keep variables connected to the network's computation graph
         v = v_0
         pg = pg_0
         qg = qg_0
     
     with torch.enable_grad(): # Force autograd to be active for the seeking loop
         for _ in range(seek_steps):
-            # A. Evaluate Constraints on Current State
-            vp = quad_batch_stack(v, M_p); vq = quad_batch_stack(v, M_q)
-            pf = quad_batch_stack(v, M_pf); qf = quad_batch_stack(v, M_qf)
-            pt = quad_batch_stack(v, M_pt); qt = quad_batch_stack(v, M_qt)
-            vc = quad_batch_stack(v, M_c); vs = quad_batch_stack(v, M_s)
-            vv = quad_batch_stack(v, M_v)
-            
-            h_p = (pg @ C_g.T) - Pd_batch - vp
-            h_q = (qg @ C_g.T) - Qd_batch - vq
-            g_sf = (pf**2 + qf**2) - smax**2
-            g_st = (pt**2 + qt**2) - smax**2
-            g_ang_min = torch.tan(angmin) * vc - vs
-            g_ang_max = vs - torch.tan(angmax) * vc
-            g_v_max = vv - (Vmax**2)
-            g_v_min = (Vmin**2) - vv
-            g_pg_max = pg - pmax; g_pg_min = pmin - pg
-            g_qg_max = qg - qmax; g_qg_min = qmin - qg
+            (h_p, h_q, g_sf, g_st, g_ang_min, g_ang_max, g_v_max, g_v_min, 
+             g_pg_max, g_pg_min, g_qg_max, g_qg_min, _) = evaluate_physics(v, pg, qg)
             
             # Sum up all violations to create the Feasibility Objective P(y)
             viol_loss = (
@@ -166,13 +197,12 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
                 F.relu(g_qg_max).pow(2).mean() + F.relu(g_qg_min).pow(2).mean()
             )
             
-            # B. Compute Differentiable Gradients
-            # create_graph=is_training allows backprop to the NN during training, but saves memory in val
+            # Compute Differentiable Gradients
             grad_v, grad_pg, grad_qg = torch.autograd.grad(
                 viol_loss, (v, pg, qg), create_graph=is_training, retain_graph=True
             )
             
-            # C. Take a gradient descent step (moving closer to feasibility)
+            # Gradient descent step (moving closer to feasibility)
             v = v - seek_lr * grad_v
             pg = pg - seek_lr * grad_pg
             qg = qg - seek_lr * grad_qg
@@ -180,28 +210,9 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
     # --------------------------------------------------------
     # 3. FINAL TASK LOSS EVALUATION ON \hat{y} (Post-Seeking)
     # --------------------------------------------------------
-    vp_f = quad_batch_stack(v, M_p); vq_f = quad_batch_stack(v, M_q)
-    pf_f = quad_batch_stack(v, M_pf); qf_f = quad_batch_stack(v, M_qf)
-    pt_f = quad_batch_stack(v, M_pt); qt_f = quad_batch_stack(v, M_qt)
-    vc_f = quad_batch_stack(v, M_c); vs_f = quad_batch_stack(v, M_s)
-    vv_f = quad_batch_stack(v, M_v)
+    (h_p_f, h_q_f, g_sf_f, g_st_f, g_ang_min_f, g_ang_max_f, g_v_max_f, g_v_min_f, 
+     g_pg_max_f, g_pg_min_f, g_qg_max_f, g_qg_min_f, obj) = evaluate_physics(v, pg, qg)
 
-    h_p_f = (pg @ C_g.T) - Pd_batch - vp_f
-    h_q_f = (qg @ C_g.T) - Qd_batch - vq_f
-    g_sf_f = (pf_f**2 + qf_f**2) - smax**2
-    g_st_f = (pt_f**2 + qt_f**2) - smax**2
-    g_ang_min_f = torch.tan(angmin) * vc_f - vs_f
-    g_ang_max_f = vs_f - torch.tan(angmax) * vc_f
-    g_v_max_f = vv_f - (Vmax**2)
-    g_v_min_f = (Vmin**2) - vv_f
-    g_pg_max_f = pg - pmax; g_pg_min_f = pmin - pg
-    g_qg_max_f = qg - qmax; g_qg_min_f = qmin - qg
-
-    # Objective Cost at the feasible point
-    cost_per_gen = c2 * (pg ** 2) + c1 * pg + c0
-    obj = cost_per_gen.sum(dim=1).mean()
-
-    # --- UPDATED TO MATCH BASELINE WEIGHT STRUCTURE ---
     loss_eq_p = h_p_f.pow(2).mean()
     loss_eq_q = h_q_f.pow(2).mean()
 
@@ -213,19 +224,14 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
         F.relu(g_qg_max_f).pow(2).mean() + F.relu(g_qg_min_f).pow(2).mean()
     )
 
-    # Inside compute_fsnet_qcqp_smax_loss (around line 170):
     total_loss = (
         (weights["primal_eq_p"] * loss_eq_p) + 
         (weights["primal_eq_q"] * loss_eq_q) + 
         (weights["primal_ineq"] * loss_ineq) + 
         (weights["obj"] * obj) +
-        # --- ADD THIS DISTILLATION TERM ---
         (50.0 * (F.mse_loss(v_0, v.detach()) + F.mse_loss(pg_0, pg.detach()) + F.mse_loss(qg_0, qg.detach())))
     )
 
-    # --------------------------------------------------------
-    # DIAGNOSTICS FOR BENCHMARKING
-    # --------------------------------------------------------
     diagnostics = {
         "loss_total": total_loss.detach().item(),
         "loss_primal": (loss_eq_p + loss_eq_q + loss_ineq).detach().item(),
@@ -242,7 +248,6 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
     }
 
     return total_loss, diagnostics
-
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
     # --- ARGUMENT PARSING ---
@@ -355,7 +360,7 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model_fsnet.parameters(), 10.0)
             optimizer_fsnet.step()
             
-        if epoch % 10 == 0:  
+        if epoch % 100 == 0:  
             # 1. Switch to evaluation mode and freeze gradients
             model_fsnet.eval()
             with torch.no_grad():

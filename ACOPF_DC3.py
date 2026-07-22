@@ -12,7 +12,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
+torch.set_float32_matmul_precision('high')
 
 # --- MODEL DEFINITION ---
 class baselineQCQPMLP(nn.Module):
@@ -84,14 +85,7 @@ class baselineQCQPMLP(nn.Module):
         qg = qmin_b + torch.sigmoid(qg_raw) * (qmax_b - qmin_b)
 
         return v, pg, qg
-
-# --- UTILS & LOSS FUNCTIONS ---
-def batch_Mv(M: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-    return torch.einsum('kij,bj->bki', M, v)
-
-def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
-    return torch.einsum("bi,kij,bj->bk", v, M, v)
-
+    
 def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr_steps=10, corr_lr=1e-3):
     B = Pd_batch.shape[0]
     
@@ -100,21 +94,61 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
     # --------------------------------------------------------
     v_pred, pg_pred, qg_pred = model(Pd_batch, Qd_batch, problem)
 
-    # Unpack Problem Matrices
-    M_p, M_q = problem["M_p"], problem["M_q"]
-    M_pf, M_qf = problem["M_pf"], problem["M_qf"]
-    M_pt, M_qt = problem["M_pt"], problem["M_qt"]
-    M_c, M_s, M_v = problem["M_c"], problem["M_s"], problem["M_v"]
-    C_g = problem["C_g"]
+    nbus = problem["nbus"]
+    f = problem["fbus"]
+    t = problem["tbus"]
+    f_exp = f.unsqueeze(0).expand(B, -1)
+    t_exp = t.unsqueeze(0).expand(B, -1)
     
-    smax = problem["smax"].unsqueeze(0).expand(B, -1)
-    angmax = problem["angmax"].unsqueeze(0).expand(B, -1)
+    # Pre-expand limits
+    smax2 = problem["smax"]**2
+    Vmax2 = problem["Vmax"]**2
+    Vmin2 = problem["Vmin"]**2
     angmin = problem["angmin"].unsqueeze(0).expand(B, -1)
-    Vmin = problem["Vmin"].unsqueeze(0).expand(B, -1)
-    Vmax = problem["Vmax"].unsqueeze(0).expand(B, -1)
-    c2 = problem["c2"].unsqueeze(0).expand(B, -1)
-    c1 = problem["c1"].unsqueeze(0).expand(B, -1)
-    c0 = problem["c0"].unsqueeze(0).expand(B, -1) if "c0" in problem else 0.0
+    angmax = problem["angmax"].unsqueeze(0).expand(B, -1)
+
+    # --- Nested Helper to Evaluate Physics for Graph-Incidence ---
+    def evaluate_physics(v_curr, pg_curr, qg_curr):
+        vr = v_curr[:, :nbus]; vi = v_curr[:, nbus:]
+        vr_f = vr[:, f]; vi_f = vi[:, f]
+        vr_t = vr[:, t]; vi_t = vi[:, t]
+        
+        vv_f = vr_f**2 + vi_f**2
+        vv_t = vr_t**2 + vi_t**2
+        v_rt_cross = vr_f * vr_t + vi_f * vi_t
+        v_it_cross = vr_f * vi_t - vi_f * vr_t
+        
+        # 1D Branch Flows
+        pf = problem["g11"] * vv_f - (problem["g12"] - problem["b21"]) * v_rt_cross + (problem["g21"] + problem["b12"]) * v_it_cross
+        qf = -problem["b11"] * vv_f + (problem["b12"] + problem["g21"]) * v_rt_cross + (problem["b21"] - problem["g12"]) * v_it_cross
+        pt = problem["g22"] * vv_t - (problem["g12"] + problem["b21"]) * v_rt_cross + (problem["g21"] - problem["b12"]) * v_it_cross
+        qt = -problem["b22"] * vv_t + (problem["b12"] - problem["g21"]) * v_rt_cross - (problem["b21"] + problem["g12"]) * v_it_cross
+        
+        # Nodal Injections via scatter_add
+        vp = problem["Gs"] * (vr**2 + vi**2)
+        vq = -problem["Bs"] * (vr**2 + vi**2)
+        vp = vp.scatter_add(1, f_exp, pf)
+        vp = vp.scatter_add(1, t_exp, pt)
+        vq = vq.scatter_add(1, f_exp, qf)
+        vq = vq.scatter_add(1, t_exp, qt)
+
+        # Constraints & Objective
+        h_p_out = (pg_curr @ problem["C_g"].T) - Pd_batch - vp
+        h_q_out = (qg_curr @ problem["C_g"].T) - Qd_batch - vq
+        g_sf_out = (pf**2 + qf**2) - smax2
+        g_st_out = (pt**2 + qt**2) - smax2
+        g_ang_min_out = torch.tan(angmin) * v_rt_cross - v_it_cross
+        g_ang_max_out = v_it_cross - torch.tan(angmax) * v_rt_cross
+        vv = vr**2 + vi**2
+        g_v_max_out = vv - Vmax2
+        g_v_min_out = Vmin2 - vv
+        
+        c2 = problem["c2"].unsqueeze(0).expand(B, -1)
+        c1 = problem["c1"].unsqueeze(0).expand(B, -1)
+        c0 = problem["c0"].unsqueeze(0).expand(B, -1) if "c0" in problem else 0.0
+        obj_cost = (c2 * (pg_curr ** 2) + c1 * pg_curr + c0).sum(dim=1).mean()
+        
+        return h_p_out, h_q_out, g_sf_out, g_st_out, g_ang_min_out, g_ang_max_out, g_v_max_out, g_v_min_out, obj_cost
 
     # --------------------------------------------------------
     # 2. DC3 CORRECTION PHASE (Inner Optimization Loop)
@@ -123,7 +157,6 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
     pg_c = pg_pred.detach().clone().requires_grad_(True)
     qg_c = qg_pred.detach().clone().requires_grad_(True)
     
-    # Define an inner optimizer solely for the correction steps
     optimizer_corr = torch.optim.Adam([v_c, pg_c, qg_c], lr=corr_lr)
     
     with torch.enable_grad():
@@ -131,22 +164,7 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
             optimizer_corr.zero_grad()
             
             # Evaluate Physics on the *Correction* variables
-            vp_c = quad_batch_stack(v_c, M_p)
-            vq_c = quad_batch_stack(v_c, M_q)
-            pf_c = quad_batch_stack(v_c, M_pf); qf_c = quad_batch_stack(v_c, M_qf)
-            pt_c = quad_batch_stack(v_c, M_pt); qt_c = quad_batch_stack(v_c, M_qt)
-            vc_c = quad_batch_stack(v_c, M_c); vs_c = quad_batch_stack(v_c, M_s)
-            vv_c = quad_batch_stack(v_c, M_v)
-            
-            # Constraints
-            h_p_c = (pg_c @ C_g.T) - Pd_batch - vp_c
-            h_q_c = (qg_c @ C_g.T) - Qd_batch - vq_c
-            g_sf_c = (pf_c**2 + qf_c**2) - smax**2
-            g_st_c = (pt_c**2 + qt_c**2) - smax**2
-            g_ang_min_c = torch.tan(angmin) * vc_c - vs_c
-            g_ang_max_c = vs_c - torch.tan(angmax) * vc_c
-            g_v_max_c = vv_c - (Vmax**2)
-            g_v_min_c = (Vmin**2) - vv_c
+            h_p_c, h_q_c, g_sf_c, g_st_c, g_ang_min_c, g_ang_max_c, g_v_max_c, g_v_min_c, _ = evaluate_physics(v_c, pg_c, qg_c)
             
             # Sum up all violations to create a repair gradient
             viol_loss = (
@@ -162,25 +180,8 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
     # --------------------------------------------------------
     # 3. STANDARD PRIMAL EVALUATION (On original NN output)
     # --------------------------------------------------------
-    vp = quad_batch_stack(v_pred, M_p); vq = quad_batch_stack(v_pred, M_q)
-    pf = quad_batch_stack(v_pred, M_pf); qf = quad_batch_stack(v_pred, M_qf)
-    pt = quad_batch_stack(v_pred, M_pt); qt = quad_batch_stack(v_pred, M_qt)
-    vc = quad_batch_stack(v_pred, M_c); vs = quad_batch_stack(v_pred, M_s)
-    vv = quad_batch_stack(v_pred, M_v)
+    h_p, h_q, g_sf, g_st, g_ang_min, g_ang_max, g_v_max, g_v_min, obj = evaluate_physics(v_pred, pg_pred, qg_pred)
 
-    h_p = (pg_pred @ C_g.T) - Pd_batch - vp
-    h_q = (qg_pred @ C_g.T) - Qd_batch - vq
-    g_sf = (pf**2 + qf**2) - smax**2
-    g_st = (pt**2 + qt**2) - smax**2
-    g_ang_min = torch.tan(angmin) * vc - vs
-    g_ang_max = vs - torch.tan(angmax) * vc
-    g_v_max = vv - (Vmax**2)
-    g_v_min = (Vmin**2) - vv
-
-    cost_per_gen = c2 * (pg_pred ** 2) + c1 * pg_pred + c0
-    obj = cost_per_gen.sum(dim=1).mean()
-
-    # --- UPDATED TO MATCH BASELINE WEIGHT STRUCTURE ---
     loss_eq_p = h_p.pow(2).mean()
     loss_eq_q = h_q.pow(2).mean()
     
@@ -193,14 +194,12 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
     # --------------------------------------------------------
     # 4. DC3 TARGET LOSS
     # --------------------------------------------------------
-    # Penalize distance between Neural Network output and the Repaired Target
     dc3_corr_loss = (
         F.mse_loss(v_pred, v_c.detach()) + 
         F.mse_loss(pg_pred, pg_c.detach()) + 
         F.mse_loss(qg_pred, qg_c.detach())
     )
 
-    # --- UPDATED TOTAL LOSS CALCULATION ---
     total_loss = (
         (weights["primal_eq_p"] * loss_eq_p) + 
         (weights["primal_eq_q"] * loss_eq_q) + 
@@ -209,24 +208,19 @@ def compute_dc3_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, corr
         (weights["dc3_corr"] * dc3_corr_loss)
     )
 
-    # --------------------------------------------------------
-    # DIAGNOSTICS FOR BENCHMARKING
-    # --------------------------------------------------------
     diagnostics = {
         "loss_total": total_loss.detach().item(),
         "loss_primal": (loss_eq_p + loss_eq_q + loss_ineq).detach().item(),
         "loss_dc3_corr": dc3_corr_loss.detach().item(),
         "obj_cost": obj.detach().item(),
-        
         "max_h_p": h_p.abs().max().detach().item(),
         "max_h_q": h_q.abs().max().detach().item(),
         "max_thermal": torch.max(F.relu(g_sf).max(), F.relu(g_st).max()).detach().item(),
         "max_v_viol": torch.max(F.relu(g_v_max).max(), F.relu(g_v_min).max()).detach().item(),
-        "max_gen_viol": 0.0 # Baseline model bounds generators by construction!
+        "max_gen_viol": 0.0 
     }
 
     return total_loss, diagnostics
-
 
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
@@ -340,7 +334,7 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model_dc3.parameters(), 10.0)
             optimizer_dc3.step()
             
-        if epoch % 10 == 0:
+        if epoch % 100 == 0:
             # 1. Switch to evaluation mode and freeze gradients
             model_dc3.eval()
             with torch.no_grad():

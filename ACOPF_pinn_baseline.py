@@ -255,7 +255,7 @@ if __name__ == "__main__":
         print(f"CRITICAL: Admittance topology dataset not found at target: {dataset_path}")
         sys.exit(1)
 
-    # 2. Extract Data Split Slices & Cast to Float32
+    # 2. Extract Data Split Slices & Cast to Float32 
     actual_total_samples = problem["Pd_all"].shape[0] 
     train_size = int(0.8 * actual_total_samples)
     val_size = int(0.1 * actual_total_samples)
@@ -323,7 +323,7 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0)
             optimizer.step()
 
-        if epoch % 10 == 0:  
+        if epoch % 100 == 0:  
             # 1. Switch to evaluation mode and freeze gradients
             model.eval()
             with torch.no_grad():
