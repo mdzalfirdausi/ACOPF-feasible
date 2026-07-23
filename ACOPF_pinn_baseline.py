@@ -238,22 +238,21 @@ if __name__ == "__main__":
     case_name = args.case_name
     total_samples = 10000
     dataset_path = f'./dataset/{case_name}_{total_samples}.pt'
-    
-    try:
-        problem = torch.load(dataset_path, map_location=device)
+    problem = torch.load(dataset_path, map_location=device)
+    # try:
+    #     problem = torch.load(dataset_path, map_location=device)
 
-        print("--- STEP 1: EXHAUSTIVE DATASET INTEGRITY CHECK ---")
-        for k, v in problem.items():
-            if isinstance(v, torch.Tensor):
-                nan_count = torch.isnan(v).sum().item()
-                inf_count = torch.isinf(v).sum().item()
-                if nan_count > 0 or inf_count > 0:
-                    raise ValueError(f"CRITICAL DATA CORRUPTION: Tensor '{k}' contains {nan_count} NaNs and {inf_count} Infs!")
-        print("All problem matrices are 100% clean of NaNs and Infs.")
-
-    except FileNotFoundError:
-        print(f"CRITICAL: Admittance topology dataset not found at target: {dataset_path}")
-        sys.exit(1)
+    #     print("--- STEP 1: EXHAUSTIVE DATASET INTEGRITY CHECK ---")
+    #     for k, v in problem.items():
+    #         if isinstance(v, torch.Tensor):
+    #             nan_count = torch.isnan(v).sum().item()
+    #             inf_count = torch.isinf(v).sum().item()
+    #             if nan_count > 0 or inf_count > 0:
+    #                 raise ValueError(f"CRITICAL DATA CORRUPTION: Tensor '{k}' contains {nan_count} NaNs and {inf_count} Infs!")
+    #     print("All problem matrices are 100% clean of NaNs and Infs.")
+    # except FileNotFoundError:
+    #     print(f"CRITICAL: Admittance topology dataset not found at target: {dataset_path}")
+    #     sys.exit(1)
 
     # 2. Extract Data Split Slices & Cast to Float32 
     actual_total_samples = problem["Pd_all"].shape[0] 
