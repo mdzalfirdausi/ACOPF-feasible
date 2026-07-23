@@ -33,5 +33,5 @@ echo "GPU Allocated: $CUDA_VISIBLE_DEVICES"
 # Force CUDA to trigger an error if the driver isn't responsive
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA check failed before execution!'"
 
-# 5. Run the target script directly, passing ALL arguments ($@)
+# 5. Run the target script directly, passing ALL arguments ($@) 
 python -u "$@"
