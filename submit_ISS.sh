@@ -1,7 +1,4 @@
 #!/bin/bash
-#SBATCH --job-name=acopf_ISS
-#SBATCH --output=logs/%j_%x.out
-#SBATCH --error=logs/%j_%x.err
 #SBATCH --partition=main
 #SBATCH --mem=160G
 #SBATCH --gres=gpu:1
@@ -12,26 +9,29 @@
 # 1. Ensure a script was passed
 if [ -z "$1" ]; then
     echo "ERROR: No script filename provided."
-    echo "Usage: sbatch submit.sh <your_script_name.py> [arguments...]"
     exit 1
 fi
 
-# 2. Ensure directories exist
+# 2. Extract script name without extension (e.g., ACOPF_Hard_KKT)
+SCRIPT_BASE=$(basename "$1" .py)
+
+# 3. Create directories
 mkdir -p ./model
 mkdir -p ./logs
 
-# 3. Environment Setup
-# module load conda/25.08
+# 4. Dynamically redirect stdout & stderr using SLURM_JOB_ID
+LOG_OUT="logs/${SLURM_JOB_ID}_${SCRIPT_BASE}.out"
+LOG_ERR="logs/${SLURM_JOB_ID}_${SCRIPT_BASE}.err"
+
+exec > "$LOG_OUT" 2> "$LOG_ERR"
+
+# --- Rest of your script runs normally below ---
 source ~/miniconda3/bin/activate pytorch
 
-# 4. Hardware/Environment Check
-echo "Job: $SLURM_JOB_NAME"
+echo "Job ID: $SLURM_JOB_ID"
 echo "Executing: $@"
 echo "Node: $(hostname)"
 echo "GPU Allocated: $CUDA_VISIBLE_DEVICES"
 
-# Force CUDA to trigger an error if the driver isn't responsive
-python -c "import torch; assert torch.cuda.is_available(), 'CUDA check failed before execution!'"
-
-# 5. Run the target script directly, passing ALL arguments ($@) 
+python -c "import torch; assert torch.cuda.is_available(), 'CUDA check failed!'"
 python -u "$@"
