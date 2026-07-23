@@ -15,6 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
+import os
 torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision('high')
 
@@ -323,14 +324,24 @@ if __name__ == "__main__":
         help="Number of training epochs"
     )
     args = parser.parse_args()
-    # 0. Hardware Device Discovery & Optimization
+    # 0. Hardware Device Discovery & Optimization 
     if torch.cuda.is_available():
         device = torch.device("cuda")
         print(f"CUDA Hardware Acceleration Active: {torch.cuda.get_device_name(0)}")
     else:
         device = torch.device("cpu")
-        torch.set_num_threads(12)
-        print("Running on CPU Profile. Thread threshold established at 12 loops.")
+        # 1. Check if running under SLURM allocation first
+        if "SLURM_CPUS_PER_TASK" in os.environ:
+            max_threads = int(os.environ["SLURM_CPUS_PER_TASK"])
+        # 2. Check Linux cgroup process affinity (prevents oversubscription on shared nodes)
+        elif hasattr(os, "sched_getaffinity"):
+            max_threads = len(os.sched_getaffinity(0))
+        # 3. Fallback to total physical/logical cores (Windows / Mac / Local execution)
+        else:
+            max_threads = os.cpu_count() or 1  # Fallback to 1 if detection fails
+
+        torch.set_num_threads(max_threads)
+        print(f"Running on CPU Profile. Adaptive thread threshold established at {max_threads} threads.")
 
     # 1. Load Data
     case_name = args.case_name
