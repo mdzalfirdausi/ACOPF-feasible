@@ -235,6 +235,11 @@ def compute_hard_kkt_loss(model, Pd_batch, Qd_batch, problem, weights, kkt_steps
                 L_rho.mean(), (v, pg, qg), create_graph=is_training, retain_graph=True
             )
             
+            # CRITICAL SAFETY: Clamp Augmented Lagrangian gradients
+            grad_v = torch.clamp(grad_v, -1.0, 1.0)
+            grad_pg = torch.clamp(grad_pg, -1.0, 1.0)
+            grad_qg = torch.clamp(grad_qg, -1.0, 1.0)
+            
             v = v - kkt_lr * grad_v
             pg = pg - kkt_lr * grad_pg
             qg = qg - kkt_lr * grad_qg
@@ -405,7 +410,7 @@ if __name__ == "__main__":
                 problem=problem, 
                 weights=loss_weights_kkt,
                 kkt_steps=5,     
-                kkt_lr=1e-2,
+                kkt_lr=1e-4,
                 rho=1.0      
             )
             

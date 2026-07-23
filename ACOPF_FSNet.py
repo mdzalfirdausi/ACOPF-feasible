@@ -202,6 +202,11 @@ def compute_fsnet_qcqp_smax_loss(model, Pd_batch, Qd_batch, problem, weights, se
                 viol_loss, (v, pg, qg), create_graph=is_training, retain_graph=True
             )
             
+            # CRITICAL SAFETY: Clamp gradients to prevent float32 explosion
+            grad_v = torch.clamp(grad_v, -1.0, 1.0)
+            grad_pg = torch.clamp(grad_pg, -1.0, 1.0)
+            grad_qg = torch.clamp(grad_qg, -1.0, 1.0)
+            
             # Gradient descent step (moving closer to feasibility)
             v = v - seek_lr * grad_v
             pg = pg - seek_lr * grad_pg
@@ -351,7 +356,7 @@ if __name__ == "__main__":
                 problem=problem, 
                 weights=loss_weights_fsnet,
                 seek_steps=5,     
-                seek_lr=1e-2      
+                seek_lr=1e-4      
             )
             
             loss.backward()
