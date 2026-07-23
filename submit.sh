@@ -26,7 +26,11 @@ mkdir -p ./logs
 
 # 3. Environment Setup
 module load conda/25.08
-source activate pytorch
+# Initialize conda for the non-interactive bash shell
+eval "$(conda shell.bash hook)"
+
+# Activate the environment properly
+conda activate pytorch
 
 # 4. Hardware/Environment Check
 echo "Job: $SLURM_JOB_NAME"
