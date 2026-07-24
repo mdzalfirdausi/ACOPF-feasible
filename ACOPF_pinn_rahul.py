@@ -12,11 +12,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
+import os
 
 torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision('high')
+
 # --- MODEL DEFINITION --- 
-# IMPORTANT: Paste your exact RahulSinglePINN_Smax class definition here!
 class RahulSinglePINN_Smax(nn.Module):
     """
     Version 2: Single Neural Network for all variables (Primal + Dual).
@@ -44,7 +45,7 @@ class RahulSinglePINN_Smax(nn.Module):
             nn.Linear(hidden_dim, out_dim)
         )
 
-    def forward(self, Pd, Qd, problem):  # <-- ADD problem HERE
+    def forward(self, Pd, Qd, problem):
         B = Pd.shape[0]
         x = torch.cat([Pd, Qd], dim=-1)
         raw = self.net(x)
@@ -56,25 +57,21 @@ class RahulSinglePINN_Smax(nn.Module):
         v_raw = raw[:, idx : idx + self.dim_v]; idx += self.dim_v
         pq_raw = raw[:, idx : idx + self.dim_g]; idx += self.dim_g
         
-        # --- REPLACED VOLTAGE BOUNDING LOGIC ---
-        # Split raw voltage outputs into Real and Imaginary parts
         vr_raw = v_raw[:, :self.nbus]
         vi_raw = v_raw[:, self.nbus:]
 
         Vmax_b = problem["Vmax"].reshape(1, -1).expand(B, -1) if hasattr(problem["Vmax"], "reshape") else problem["Vmax"].unsqueeze(0).expand(B, -1)
         Vmin_b = problem["Vmin"].reshape(1, -1).expand(B, -1) if hasattr(problem["Vmin"], "reshape") else problem["Vmin"].unsqueeze(0).expand(B, -1)
 
-        # 1. Bound Real Voltage strictly between [Vmin, Vmax] using Sigmoid (Centers around nominal 1.0 p.u.)
+        # Bound Real Voltage strictly between [Vmin, Vmax] using Sigmoid
         vr = Vmin_b + torch.sigmoid(vr_raw) * (Vmax_b - Vmin_b)
         
-        # 2. Bound Imaginary Voltage (Angle differences keep imaginary components small, e.g., [-0.5*Vmax, 0.5*Vmax])
+        # Bound Imaginary Voltage
         vi = torch.tanh(vi_raw) * (Vmax_b * 0.5)
 
         v = torch.cat([vr, vi], dim=-1)
-        # ---------------------------------------
         
-        # Structurally lock generation between [min, max] using Sigmoid
-        # This makes negative generation (and negative costs) 100% IMPOSSIBLE!
+        # Bound Generation strictly between [min, max] using Sigmoid
         pmax_b = problem["pmax"].unsqueeze(0).expand(B, -1)
         pmin_b = problem["pmin"].unsqueeze(0).expand(B, -1)
         qmax_b = problem["qmax"].unsqueeze(0).expand(B, -1)
@@ -103,15 +100,8 @@ class RahulSinglePINN_Smax(nn.Module):
                 mu_ang_max, mu_ang_min, mu_v_max, mu_v_min, 
                 mu_pg_max, mu_pg_min, mu_qg_max, mu_qg_min)
 
-# --- UTILS & LOSS FUNCTIONS ---
-def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
-    # v: [B, d], M: [K, d, d] -> [B, K]
-    return torch.einsum("bi,kij,bj->bk", v, M, v)
 
-def batch_Mv(M: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-    # M: [K, d, d], v: [B, d] -> [B, K, d]
-    return torch.einsum('kij,bj->bki', M, v)
-
+# --- GRAPH LOSS FUNCTION ---
 def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
     B = Pd_batch.shape[0]
     
@@ -120,63 +110,68 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
      mu_ang_max, mu_ang_min, mu_v_max, mu_v_min, 
      mu_pg_max, mu_pg_min, mu_qg_max, mu_qg_min) = model(Pd_batch, Qd_batch, problem) 
 
-    # Matrices & Limits 
-    M_p, M_q = problem["M_p"], problem["M_q"]
-    M_pf, M_qf = problem["M_pf"], problem["M_qf"]
-    M_pt, M_qt = problem["M_pt"], problem["M_qt"]
-    M_c, M_s, M_v = problem["M_c"], problem["M_s"], problem["M_v"]
-    C_g = problem["C_g"]
+    # --------------------------------------------------------
+    # A. PRIMAL EVALUATIONS (Graph / Branch-Incidence)
+    # --------------------------------------------------------
+    nbus = problem["nbus"]
+    f = problem["fbus"]
+    t = problem["tbus"]
     
-    smax = problem["smax"].unsqueeze(0).expand(B, -1)
-    angmax = problem["angmax"].unsqueeze(0).expand(B, -1)
-    angmin = problem["angmin"].unsqueeze(0).expand(B, -1)
-    Vmin = problem["Vmin"].unsqueeze(0).expand(B, -1)
-    Vmax = problem["Vmax"].unsqueeze(0).expand(B, -1)
-    pmax = problem["pmax"].unsqueeze(0).expand(B, -1)
-    pmin = problem["pmin"].unsqueeze(0).expand(B, -1)
-    qmax = problem["qmax"].unsqueeze(0).expand(B, -1)
-    qmin = problem["qmin"].unsqueeze(0).expand(B, -1)
+    vr = v[:, :nbus]
+    vi = v[:, nbus:]
     
+    vr_f = vr[:, f]; vi_f = vi[:, f]
+    vr_t = vr[:, t]; vi_t = vi[:, t]
+    
+    vv_f = vr_f**2 + vi_f**2
+    vv_t = vr_t**2 + vi_t**2
+    
+    v_rt_cross = vr_f * vr_t + vi_f * vi_t
+    v_it_cross = vr_f * vi_t - vi_f * vr_t
+    
+    # 1. 1D Branch Flows
+    pf = problem["g11"] * vv_f - (problem["g12"] - problem["b21"]) * v_rt_cross + (problem["g21"] + problem["b12"]) * v_it_cross
+    qf = -problem["b11"] * vv_f + (problem["b12"] + problem["g21"]) * v_rt_cross + (problem["b21"] - problem["g12"]) * v_it_cross
+    pt = problem["g22"] * vv_t - (problem["g12"] + problem["b21"]) * v_rt_cross + (problem["g21"] - problem["b12"]) * v_it_cross
+    qt = -problem["b22"] * vv_t + (problem["b12"] - problem["g21"]) * v_rt_cross - (problem["b21"] + problem["g12"]) * v_it_cross
+    
+    # 2. Nodal Injections (Uses scatter_add for fast, zero-free accumulation)
+    vp = problem["Gs"] * (vr**2 + vi**2)
+    vq = -problem["Bs"] * (vr**2 + vi**2)
+    
+    f_exp = f.unsqueeze(0).expand(B, -1)
+    t_exp = t.unsqueeze(0).expand(B, -1)
+    
+    vp = vp.scatter_add(1, f_exp, pf)
+    vp = vp.scatter_add(1, t_exp, pt)
+    
+    vq = vq.scatter_add(1, f_exp, qf)
+    vq = vq.scatter_add(1, t_exp, qt)
+    
+    # 3. Constraints
+    h_p = (pg @ problem["C_g"].T) - Pd_batch - vp
+    h_q = (qg @ problem["C_g"].T) - Qd_batch - vq
+    
+    g_sf = (pf**2 + qf**2) - problem["smax"]**2
+    g_st = (pt**2 + qt**2) - problem["smax"]**2
+    
+    g_ang_min = torch.tan(problem["angmin"]) * v_rt_cross - v_it_cross
+    g_ang_max = v_it_cross - torch.tan(problem["angmax"]) * v_rt_cross
+    
+    vv = vr**2 + vi**2
+    g_v_max = vv - problem["Vmax"]**2
+    g_v_min = problem["Vmin"]**2 - vv
+    
+    g_pg_max = pg - problem["pmax"]
+    g_pg_min = problem["pmin"] - pg
+    g_qg_max = qg - problem["qmax"]
+    g_qg_min = problem["qmin"] - qg
+
+    # Objective Cost
     c2 = problem["c2"].unsqueeze(0).expand(B, -1)
     c1 = problem["c1"].unsqueeze(0).expand(B, -1)
-    c0 = problem["c0"].unsqueeze(0).expand(B, -1)
-    M_p_v  = batch_Mv(M_p, v)
-    M_q_v  = batch_Mv(M_q, v)
-    M_pf_v = batch_Mv(M_pf, v)
-    M_qf_v = batch_Mv(M_qf, v)
-    M_pt_v = batch_Mv(M_pt, v)
-    M_qt_v = batch_Mv(M_qt, v)
-    M_c_v  = batch_Mv(M_c, v)
-    M_s_v  = batch_Mv(M_s, v)
-    M_v_v  = batch_Mv(M_v, v)
-    # --------------------------------------------------------
-    # A. PRIMAL EVALUATIONS
-    # --------------------------------------------------------
-    vp = torch.einsum('bi,bki->bk', v, M_p_v)
-    vq = torch.einsum('bi,bki->bk', v, M_q_v)
-    pf = torch.einsum('bi,bki->bk', v, M_pf_v)
-    qf = torch.einsum('bi,bki->bk', v, M_qf_v)
-    pt = torch.einsum('bi,bki->bk', v, M_pt_v)
-    qt = torch.einsum('bi,bki->bk', v, M_qt_v)
-    vc = torch.einsum('bi,bki->bk', v, M_c_v)
-    vs = torch.einsum('bi,bki->bk', v, M_s_v)
-    vv = torch.einsum('bi,bki->bk', v, M_v_v)
-
-    # Equations
-    h_p = (pg @ C_g.T) - Pd_batch - vp
-    h_q = (qg @ C_g.T) - Qd_batch - vq
-    g_sf = (pf**2 + qf**2) - smax**2
-    g_st = (pt**2 + qt**2) - smax**2
-    g_ang_min = torch.tan(angmin) * vc - vs
-    g_ang_max = vs - torch.tan(angmax) * vc
-    g_v_max = vv - (Vmax**2)
-    g_v_min = (Vmin**2) - vv
-    g_pg_max = pg - pmax; g_pg_min = pmin - pg
-    g_qg_max = qg - qmax; g_qg_min = qmin - qg
-
-    # --------------------------------------------------------
-    # CALCULATE OBJECTIVE COST
-    # --------------------------------------------------------
+    c0 = problem["c0"].unsqueeze(0).expand(B, -1) if "c0" in problem else 0.0
+    
     cost_per_gen = c2 * (pg ** 2) + c1 * pg + c0
     obj = cost_per_gen.sum(dim=1).mean()
 
@@ -203,59 +198,44 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
     )
 
     # --------------------------------------------------------
-    # D. KKT STATIONARITY (Analytical Gradients = 0)
+    # D. KKT STATIONARITY (Automatic Differentiation)
     # --------------------------------------------------------
-    # FIX: Locate the slack bus imaginary voltage index using your dataset's "a_ref" tensor
     slack_imag_idx = (problem["a_ref"] == 1).nonzero(as_tuple=True)[0].item()
     slack_ref_error = torch.abs(v[:, slack_imag_idx]).mean()
 
-    # Safely handle Lg_Max: in pure unsupervised mode, Lg_Max does not exist in the .pt file.
-    # Defaulting to 1.0 means the network directly predicts raw Lagrange multipliers without scaling.
-    if "Lg_Max" in problem:
-        lam_p_scaled = lam_p * problem["Lg_Max"][0]
-        mu_pg_max_scaled = mu_pg_max * problem["Lg_Max"][1]
-        mu_pg_min_scaled = mu_pg_min * problem["Lg_Max"][2]
+    lam_p_scaled = lam_p * problem["Lg_Max"][0] if "Lg_Max" in problem else lam_p
+    mu_pg_max_scaled = mu_pg_max * problem["Lg_Max"][1] if "Lg_Max" in problem else mu_pg_max
+    mu_pg_min_scaled = mu_pg_min * problem["Lg_Max"][2] if "Lg_Max" in problem else mu_pg_min
+
+    L_lagrangian = (
+        (lam_p_scaled * h_p).sum() + (lam_q * h_q).sum() +
+        (mu_sf * g_sf).sum() + (mu_st * g_st).sum() +
+        (mu_ang_max * g_ang_max).sum() + (mu_ang_min * g_ang_min).sum() +
+        (mu_v_max * g_v_max).sum() + (mu_v_min * g_v_min).sum() +
+        (mu_pg_max_scaled * g_pg_max).sum() + (mu_pg_min_scaled * g_pg_min).sum() +
+        (mu_qg_max * g_qg_max).sum() + (mu_qg_min * g_qg_min).sum()
+    )
+    
+    if torch.is_grad_enabled():
+        dL_dv, dL_dpg, dL_dqg = torch.autograd.grad(
+            outputs=L_lagrangian, 
+            inputs=(v, pg, qg), 
+            create_graph=True
+        )
+        
+        dL_dpg_total = dL_dpg + (2 * c2 * pg) + c1
+        dL_dqg_total = dL_dqg
+        
+        stationarity_loss = dL_dpg_total.pow(2).mean() + dL_dqg_total.pow(2).mean() + dL_dv.pow(2).mean()
     else:
-        lam_p_scaled = lam_p
-        mu_pg_max_scaled = mu_pg_max
-        mu_pg_min_scaled = mu_pg_min
-
-    # Compute true mathematical stationarity
-    dL_dpg = (2 * c2 * pg) + c1 + (lam_p_scaled @ C_g) + mu_pg_max_scaled - mu_pg_min_scaled
-    
-    # dL_dpg = (2 * c2 * pg) + c1 + (lam_p @ C_g) + mu_pg_max - mu_pg_min
-    dL_dqg = (lam_q @ C_g) + mu_qg_max - mu_qg_min
-
-    # Exact Analytical Gradient w.r.t voltage (v)
-    dL_dv_p = -2 * torch.einsum('bk,bki->bi', lam_p, M_p_v)
-    dL_dv_q = -2 * torch.einsum('bk,bki->bi', lam_q, M_q_v)
-    
-    # The Quartic Analytical Gradient for smax: 4 * mu * (p * Mp*v + q * Mq*v)
-    dL_dv_sf = 4 * torch.einsum('bk,bk,bki->bi', mu_sf, pf, M_pf_v) + \
-               4 * torch.einsum('bk,bk,bki->bi', mu_sf, qf, M_qf_v)
-    dL_dv_st = 4 * torch.einsum('bk,bk,bki->bi', mu_st, pt, M_pt_v) + \
-               4 * torch.einsum('bk,bk,bki->bi', mu_st, qt, M_qt_v)
-    
-    dL_dv_vmax = 2 * torch.einsum('bk,bki->bi', mu_v_max, M_v_v)
-    dL_dv_vmin = -2 * torch.einsum('bk,bki->bi', mu_v_min, M_v_v)
-    
-    # M_s_v and M_c_v are already cached above! 
-    t_max = torch.tan(angmax).unsqueeze(-1); t_min = torch.tan(angmin).unsqueeze(-1)
-    
-    dL_dv_angmax = torch.einsum('bk,bki->bi', mu_ang_max, 2 * M_s_v - 2 * t_max * M_c_v)
-    dL_dv_angmin = torch.einsum('bk,bki->bi', mu_ang_min, 2 * t_min * M_c_v - 2 * M_s_v)
-
-    dL_dv = dL_dv_p + dL_dv_q + dL_dv_sf + dL_dv_st + dL_dv_vmax + dL_dv_vmin + dL_dv_angmax + dL_dv_angmin
-    
-    stationarity_loss = dL_dpg.pow(2).mean() + dL_dqg.pow(2).mean() + dL_dv.pow(2).mean()
+        stationarity_loss = torch.tensor(0.0, device=v.device)
 
     # --------------------------------------------------------
-    # E. PRIMAL LOSS (Split to match Baseline Physics Weights)
+    # E. PRIMAL LOSS
     # --------------------------------------------------------
     loss_eq_p = h_p.pow(2).mean()
     loss_eq_q = h_q.pow(2).mean()
     
-    # Lump all inequality violations together (Thermal, Angle, Voltage, Generation Limits)
     loss_ineq = (
         F.relu(g_sf).pow(2).mean() + F.relu(g_st).pow(2).mean() +
         F.relu(g_ang_min).pow(2).mean() + F.relu(g_ang_max).pow(2).mean() +
@@ -274,12 +254,9 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
         weights["cs"] * cs_loss +
         weights["dual_feas"] * dual_feas_loss +
         weights["stationarity"] * stationarity_loss +
-        weights["slack_ref"] * slack_ref_error  # <-- Add the slack reference penalty here
+        weights["slack_ref"] * slack_ref_error 
     )
 
-    # --------------------------------------------------------
-    # DIAGNOSTICS FOR BENCHMARKING
-    # --------------------------------------------------------
     diagnostics = {
         "loss_total": total_loss.detach().item(),
         "loss_primal": (loss_eq_p + loss_eq_q + loss_ineq).detach().item(),
@@ -300,7 +277,6 @@ def compute_rahul_kkt_smax_loss(model, Pd_batch, Qd_batch, problem, weights):
 
 # --- MAIN EXECUTION PIPELINE ---
 if __name__ == "__main__":
-    # --- ARGUMENT PARSING ---
     parser = argparse.ArgumentParser(description="ACOPF Unsupervised Baseline PINN Training")
     parser.add_argument(
         "--case_name", 
@@ -315,14 +291,21 @@ if __name__ == "__main__":
         help="Number of training epochs"
     )
     args = parser.parse_args()
-    # 0. Hardware Device Discovery & Optimization
+
     if torch.cuda.is_available():
         device = torch.device("cuda")
         print(f"CUDA Hardware Acceleration Active: {torch.cuda.get_device_name(0)}")
     else:
         device = torch.device("cpu")
-        torch.set_num_threads(12)
-        print("Running on CPU Profile. Thread threshold established at 12 loops.")
+        if "SLURM_CPUS_PER_TASK" in os.environ:
+            max_threads = int(os.environ["SLURM_CPUS_PER_TASK"])
+        elif hasattr(os, "sched_getaffinity"):
+            max_threads = len(os.sched_getaffinity(0))
+        else:
+            max_threads = os.cpu_count() or 1
+
+        torch.set_num_threads(max_threads)
+        print(f"Running on CPU Profile. Adaptive thread threshold established at {max_threads} threads.")
 
     # 1. Load Data
     case_name = args.case_name
@@ -342,13 +325,11 @@ if __name__ == "__main__":
 
     print(f"Problem Geometry Linked -> Matrix Samples: {actual_total_samples}")
     
-    # Slice arrays, cast to float32, and deploy to target device
     train_Pd = problem["Pd_all"][:train_size].to(device=device, dtype=torch.float32)
     train_Qd = problem["Qd_all"][:train_size].to(device=device, dtype=torch.float32)
     val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
     val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
 
-    # Transition background system tensors to matching device AND float32 precision
     for key, value in problem.items():
         if isinstance(value, torch.Tensor):
             if value.is_floating_point():
@@ -367,20 +348,21 @@ if __name__ == "__main__":
         ngen=problem["ngen"],
         nbranch=problem["nbranch"]
     ).to(device)
+    
     model_rahul = torch.compile(model_rahul)
+    
     loss_weights_rahul = {
-    "primal_eq_p": 1000.0,   # Matches baseline "eq_p"
-    "primal_eq_q": 1000.0,   # Matches baseline "eq_q"
-    "slack_ref": 1000.0,   
-    "primal_ineq": 1000.0,      # Matches baseline "thermal", "ang", "v"
-    "cs": 10.0,               # KKT Complementary Slackness
-    "dual_feas": 10.0,        # KKT Dual Feasibility
-    "stationarity": 0.0005     # KKT Stationarity (Implicitly handles your objective cost)
+        "primal_eq_p": 1000.0,
+        "primal_eq_q": 1000.0,
+        "slack_ref": 1000.0,   
+        "primal_ineq": 1000.0,
+        "cs": 10.0,
+        "dual_feas": 10.0,
+        "stationarity": 0.0005
     }
 
     optimizer_rahul = optim.Adam(model_rahul.parameters(), lr=1e-3)
     epochs = args.epochs
-    # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_save_path = f"./model/best_rahul_model_{case_name}_{epochs}epochs_{timestamp}.pth"
@@ -404,20 +386,17 @@ if __name__ == "__main__":
             
             loss.backward()
             
-            # Critical: Clip gradients to prevent the quartic s_max derivatives from exploding
             torch.nn.utils.clip_grad_norm_(model_rahul.parameters(), 10.0)
             optimizer_rahul.step()
             
         if epoch % 100 == 0:  
-            # 1. Switch to evaluation mode and freeze gradients
             model_rahul.eval()
             with torch.no_grad():
-                # Evaluate the entire validation set at once
                 val_loss, val_diag = compute_rahul_kkt_smax_loss(model_rahul, val_Pd, val_Qd, problem, loss_weights_rahul)
 
-            # 2. Checkpointing Logic: If this is the lowest validation loss we've seen, save it!
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                # Safely extract state_dict from torch.compile wrapper
                 state_dict = model_rahul._orig_mod.state_dict() if hasattr(model_rahul, '_orig_mod') else model_rahul.state_dict()
                 torch.save(state_dict, model_save_path)
                 saved_flag = " [*SAVED BEST*]"
@@ -430,7 +409,6 @@ if __name__ == "__main__":
     
     end_time = time.time()
     total_time_seconds = end_time - start_time
-    # Format into Hours, Minutes, and Seconds
     hours, remainder = divmod(total_time_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     print("\n" + "="*50)
