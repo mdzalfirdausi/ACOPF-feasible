@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime
 import time
 import sys
+from xml.parsers.expat import model
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -344,7 +345,8 @@ if __name__ == "__main__":
             # 2. Checkpointing Logic: If this is the lowest validation loss we've seen, save it!
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model_dc3.state_dict(), model_save_path)
+                state_dict = model._orig_mod.state_dict() if hasattr(model, '_orig_mod') else model.state_dict()
+                torch.save(state_dict, model_save_path)
                 saved_flag = " [*SAVED BEST*]"
             else:
                 saved_flag = ""

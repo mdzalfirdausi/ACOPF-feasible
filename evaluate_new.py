@@ -9,6 +9,7 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import time
 import sys
+import glob
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,16 +18,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import argparse
 
 # 1. IMPORT YOUR MODEL CLASSES HERE
 # (Ensure whatever class KKT uses is imported here if different from baselineQCQPMLP)
 from ACOPF_pinn_baseline import baselineQCQPMLP
 from ACOPF_pinn_rahul import RahulSinglePINN_Smax
 from ACOPF_Hard_KKT import HardKKT_QCQPMLP
-
-# --- UTILS ---
-def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
-    return torch.einsum("bi,kij,bj->bk", v, M, v)
 
 # --- CORE EVALUATION FUNCTION ---
 def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, problem: dict, device: torch.device):
@@ -51,6 +49,18 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
     qmax = problem["qmax"].unsqueeze(0)
     qmin = problem["qmin"].unsqueeze(0)
     c2, c1, c0 = problem["c2"].unsqueeze(0), problem["c1"].unsqueeze(0), problem["c0"].unsqueeze(0)
+    
+    # Pre-extract Grid Graph Topology Tensors
+    nbus = problem["nbus"]
+    fbus = problem["fbus"]
+    tbus = problem["tbus"]
+    
+    g11, g12 = problem["g11"].unsqueeze(0), problem["g12"].unsqueeze(0)
+    g21, g22 = problem["g21"].unsqueeze(0), problem["g22"].unsqueeze(0)
+    b11, b12 = problem["b11"].unsqueeze(0), problem["b12"].unsqueeze(0)
+    b21, b22 = problem["b21"].unsqueeze(0), problem["b22"].unsqueeze(0)
+    
+    Gs, Bs = problem["Gs"].unsqueeze(0), problem["Bs"].unsqueeze(0)
     
     plot_data = {
         "ipopt_costs": [], 
@@ -78,12 +88,7 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             # Safely extract the 3 primal variables (v, pg, qg) whether the model 
             # returns just 3 items or 15 items (like Hard KKT duals)
             v, pg, qg = outputs[0], outputs[1], outputs[2]
-            #     # --- ADD THIS DIAGNOSTIC CHECK ---
-            # if total_samples == B:  # Only print for the very first batch of each model
-            #     print(f"[{model_name}] Total outputs returned: {len(outputs)}")
-            #     print(f"[{model_name}] First sample pg prediction: {pg[0].cpu().numpy()}")
-            #     print(f"[{model_name}] First sample qg prediction: {qg[0].cpu().numpy()}")
-            # ----------------------------------
+            
             total_time += (time.perf_counter() - start_time)
 
             # Distance from Ground Truth (MAE)
@@ -97,25 +102,51 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             
             obj_nn = cost_nn.sum(dim=1)
             obj_ipopt = cost_ipopt.sum(dim=1)
+            
             # Calculate Signed Relative Percentage Error (Optimality Gap)
             obj_gap_pct = ((obj_nn - obj_ipopt) / obj_ipopt) * 100.0
             
             # Store signed gap
             all_objs.extend(obj_gap_pct.cpu().numpy())
-            
             plot_data["nn_costs"].extend(obj_nn.cpu().numpy())
             plot_data["ipopt_costs"].extend(obj_ipopt.cpu().numpy())
 
-            # --- Evaluate Quadratic Forms ---
-            vp = quad_batch_stack(v, problem["M_p"])
-            vq = quad_batch_stack(v, problem["M_q"])
-            pf = quad_batch_stack(v, problem["M_pf"])
-            qf = quad_batch_stack(v, problem["M_qf"])
-            pt = quad_batch_stack(v, problem["M_pt"])
-            qt = quad_batch_stack(v, problem["M_qt"])
-            vc = quad_batch_stack(v, problem["M_c"])
-            vs = quad_batch_stack(v, problem["M_s"])
-            vv = quad_batch_stack(v, problem["M_v"])
+            # --- Evaluate Physics using Sparse Graph Constraints ---
+            vr = v[:, :nbus]
+            vi = v[:, nbus:]
+            vv = vr**2 + vi**2  # Nodal voltage squared [B, nbus]
+            
+            # Slice voltages to branch from/to endpoints
+            vr_f, vi_f = vr[:, fbus], vi[:, fbus]
+            vr_t, vi_t = vr[:, tbus], vi[:, tbus]
+            
+            vv_f = vr_f**2 + vi_f**2
+            vv_t = vr_t**2 + vi_t**2
+            
+            # Voltage angle differences (cos/sin representations)
+            vc = vr_f * vr_t + vi_f * vi_t
+            vs = vi_f * vr_t - vr_f * vi_t
+            
+            # Branch Active & Reactive Power Flows
+            pf = g11 * vv_f + g12 * vc + b12 * vs
+            qf = -b11 * vv_f - b12 * vc + g12 * vs
+            
+            pt = g22 * vv_t + g21 * vc - b21 * vs
+            qt = -b22 * vv_t - b21 * vc - g21 * vs
+            
+            # Nodal Power Injections (Starts with Shunt Consumption)
+            vp = Gs.expand(B, -1) * vv
+            vq = -Bs.expand(B, -1) * vv
+            
+            # Aggregate Branch Flows into Nodes using scatter_add
+            fbus_exp = fbus.unsqueeze(0).expand(B, -1)
+            tbus_exp = tbus.unsqueeze(0).expand(B, -1)
+            
+            vp.scatter_add_(1, fbus_exp, pf)
+            vp.scatter_add_(1, tbus_exp, pt)
+            
+            vq.scatter_add_(1, fbus_exp, qf)
+            vq.scatter_add_(1, tbus_exp, qt)
 
             # --- Equality Constraints (Power Balance) ---
             h_p = (pg @ problem["C_g"].T) - Pd_batch - vp
@@ -173,22 +204,39 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
     
     return raw_metrics, plot_data
 
+
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
+    # === Setup Command Line Arguments ===
+    parser = argparse.ArgumentParser(description="Evaluate Architectures.")
+    parser.add_argument('--case_name', type=str, required=True, help="Name of the grid case (e.g., pglib_opf_case3_lmbd)")
+    parser.add_argument('--bus_number', type=int, required=True, help="Number of buses in the grid case")
+    args = parser.parse_args()
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Evaluating on device: {device}")
 
-    # 1. Load Data
-    case_name = 'pglib_opf_case14_ieee'
+    # =========================================================================
+    # SYSTEM CONFIGURATION
+    # =========================================================================
+    bus_number = args.bus_number  # <--- ONLY CHANGE THIS NUMBER (e.g., 14, 57, 162, 300)
+    # Note: Adjust the string format below if case 162 has a different suffix like '_ieee_dtc'
+    case_name = args.case_name  # <--- ONLY CHANGE THIS STRING (e.g., pglib_opf_case3_lmbd, pglib_opf_case14_ieee, etc.)
     total_samples = 10000
+    model_dir = os.path.join(r"M:\projects\ACOPF-feasible\model", str(bus_number))
+    
+    print(f"Targeting Dataset: {case_name}")
+    print(f"Looking for models in: {model_dir}")
+    # =========================================================================
+
+    # 1. Load Data
     dataset_path = f'./dataset/{case_name}_{total_samples}.pt'
-    problem = torch.load(dataset_path, map_location=device)
-    # # Add this right after: problem = torch.load(dataset_path, map_location=device)
-    # print("\n--- DATASET INTEGRITY CHECK ---")
-    # print("pmax tensor:", problem["pmax"][:5])  # Print first 5 generator limits
-    # print("pmin tensor:", problem["pmin"][:5])
-    # print("c1 cost tensor:", problem["c1"][:5])
-    # print("-------------------------------\n")
+    try:
+        problem = torch.load(dataset_path, map_location=device)
+    except FileNotFoundError:
+        print(f"CRITICAL: Dataset not found at {dataset_path}")
+        sys.exit(1)
+
     # 2. Extract EXACTLY the Test Set (The remaining 10%)
     actual_total_samples = problem["Pd_all"].shape[0] 
     train_size = int(0.8 * actual_total_samples)
@@ -235,59 +283,35 @@ if __name__ == "__main__":
     ngen = problem["ngen"]
     nbranch = problem["nbranch"]
 
-    # 3. Multi-Seed Model Registry (5 Architectures x 5 Runs)
-    # TODO: Fill in the remaining checkpoint paths for PINN Baseline, FSNet, KKT, and Rahul.
+    # 3. Dynamic Multi-Seed Model Registry
+    def get_model_paths(arch_keyword):
+        """Helper to find all matching model runs alphabetically (by timestamp)"""
+        search_pattern = os.path.join(model_dir, f"*{arch_keyword}*.pth")
+        paths = sorted(glob.glob(search_pattern))
+        if not paths:
+            print(f" ⚠️ WARNING: No checkpoints found matching '{arch_keyword}' in {model_dir}")
+        return paths
+
     architectures_config = {
         "PINN Baseline": {
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
-            "paths": [
-                "./model/14/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_163808.pth",
-                "./model/14/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_164806.pth",
-                "./model/14/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_165755.pth",
-                "./model/14/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_170755.pth",
-                "./model/14/best_pinn_model_pglib_opf_case14_ieee_10000epochs_20260718_171747.pth",
-            ]
+            "paths": get_model_paths("pinn_model")
         },
         "DC3": {
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
-            "paths": [
-                "./model/14/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_163631.pth",
-                "./model/14/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_172735.pth",
-                "./model/14/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_174545.pth",
-                "./model/14/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_180345.pth",
-                "./model/14/best_dc3_model_pglib_opf_case14_ieee_10000epochs_20260718_182208.pth",
-            ]
+            "paths": get_model_paths("dc3_model")
         },
         "FSNet": {
             "class": lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
-            "paths": [
-                "./model/14/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_133009.pth",
-                "./model/14/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_140424.pth",
-                "./model/14/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_143816.pth",
-                "./model/14/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_143816.pth",
-                "./model/14/best_fsnet_model_pglib_opf_case14_ieee_10000epochs_20260719_151214.pth",
-            ]
+            "paths": get_model_paths("fsnet_model")
         },
         "KKT": {
-            # Assuming KKT shares the baseline QCQP MLP structure. Change if using a different class. 
             "class": lambda: HardKKT_QCQPMLP(nbus, ngen, nbranch, slack_imag_idx).to(device),
-            "paths": [
-                "./model/14/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_164207.pth",
-                "./model/14/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_215835.pth",
-                "./model/14/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_223701.pth",
-                "./model/14/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_231539.pth",
-                "./model/14/best_hardkkt_pglib_opf_case14_ieee_10000epochs_20260718_235344.pth",
-            ]
+            "paths": get_model_paths("hardkkt")
         },
         "Rahul's Model": {
             "class": lambda: RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device),
-            "paths": [
-                "./model/14/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_162730.pth",
-                "./model/14/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260718_165550.pth",
-                "./model/14/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260719_011022.pth",
-                "./model/14/best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260719_012024.pth",
-                "./model/14 /best_rahul_model_pglib_opf_case14_ieee_10000epochs_20260719_013028.pth",
-            ]
+            "paths": get_model_paths("rahul_model")
         }
     }
 
@@ -298,14 +322,19 @@ if __name__ == "__main__":
 
     for arch_name, config in architectures_config.items():
         print(f"\n--- Evaluating Architecture: {arch_name} ---")
+        
+        if not config["paths"]:
+            print(f"  [Skipped] No checkpoints available.")
+            continue
+            
         for run_idx, path in enumerate(config["paths"]):
-            if not os.path.exists(path):
-                print(f"  [Run {run_idx+1}] Skipped: Path not found -> {path}")
-                continue
-                
             model = config["class"]()
             try:
-                model.load_state_dict(torch.load(path, map_location=device, weights_only=True))
+                # Inside evaluate_new.py around line 300:
+                state_dict = torch.load(path, map_location=device, weights_only=True)
+                # Strip '_orig_mod.' prefix added by torch.compile
+                new_state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+                model.load_state_dict(new_state_dict)
                 model = model.to(device).float() 
                 
                 raw_metrics, plot_data = evaluate_model(model, arch_name, test_loader, problem, device)
@@ -328,10 +357,9 @@ if __name__ == "__main__":
     
     if not df_raw.empty:
         print("\n=========================================================================================")
-        print("TABLE 1: INDIVIDUAL CHECKPOINT EVALUATIONS (ALL 25 RUNS)")
+        print("TABLE 1: INDIVIDUAL CHECKPOINT EVALUATIONS (ALL IDENTIFIED RUNS)")
         print("=========================================================================================")
         df_display_raw = df_raw.copy()
-        # For Table 1 (line ~268):
         df_display_raw["Obj. Error (%)"] = df_display_raw.apply(lambda r: f"{r['Obj_Mean']:.2f} ({r['Obj_Std']:.2f})", axis=1)
         df_display_raw = df_display_raw[["Architecture", "Run", "Obj. Error (%)", "Max_Eq", "Mean_Eq", "Max_Ineq", "Mean_Ineq", "MAE_v", "MAE_pg", "MAE_qg", "Time_s"]]
         print(df_display_raw.to_string(index=False))
@@ -340,8 +368,6 @@ if __name__ == "__main__":
         print("TABLE 2: PAPER-READY COMPARISON TABLE (AGGREGATED MEAN ± STD ACROSS SEEDS)")
         print("=========================================================================================")
         
-        # Calculate Mean and Std across the seeds for each architecture
-        # Calculate Mean and Std across the seeds for Table 2
         summary_rows = []
         for arch_name, group in df_raw.groupby("Architecture", sort=False):
             n_seeds = len(group)
@@ -353,7 +379,7 @@ if __name__ == "__main__":
             
             summary_rows.append({
                 "Architecture": f"{arch_name} (n={n_seeds})",
-                "Optimality Gap (%)": gap_str,  # Renamed from Obj. Error (%)
+                "Optimality Gap (%)": gap_str,  
                 "Max Eq. (p.u.)": f"{group['Max_Eq'].mean():.4f} ± {group['Max_Eq'].std():.4f}",
                 "Mean Eq. (p.u.)": f"{group['Mean_Eq'].mean():.4f} ± {group['Mean_Eq'].std():.4f}",
                 "Max Ineq. (p.u.)": f"{group['Max_Ineq'].mean():.4f} ± {group['Max_Ineq'].std():.4f}",
@@ -367,14 +393,12 @@ if __name__ == "__main__":
         df_summary = pd.DataFrame(summary_rows)
         try:
             from IPython.display import display
-            # display(df_summary)
             print(df_summary.to_string(index=False))
         except ImportError:
             print(df_summary.to_string(index=False))
             
-        # Optional: Save tables to CSV for LaTeX importing
         os.makedirs("plot", exist_ok=True)
-        df_summary.to_csv("plot/paper_comparison_table.csv", index=False)
+        df_summary.to_csv(f"plot/paper_comparison_table_case{bus_number}.csv", index=False)
     else:
         print("WARNING: No models were successfully evaluated.")
         sys.exit(0)
@@ -396,17 +420,14 @@ if __name__ == "__main__":
         if runs_data:
             all_sorted_viols = []
             
-            # Plot individual seeds as light background curves
             for r_idx, run_artifact in enumerate(runs_data):
                 viols = run_artifact["max_violations"]
                 sorted_viols = np.sort(viols)
                 all_sorted_viols.append(sorted_viols)
                 
-                # Thin transparent line for individual seeds
                 ax.plot(range(len(sorted_viols)), sorted_viols, alpha=0.25, color='red', 
                         linewidth=1, label='Individual Runs' if r_idx == 0 else "")
             
-            # Compute and plot Median curve across the seeds
             min_len = min(len(v) for v in all_sorted_viols)
             stacked_viols = np.vstack([v[:min_len] for v in all_sorted_viols])
             median_curve = np.median(stacked_viols, axis=0)
@@ -425,31 +446,23 @@ if __name__ == "__main__":
             ax.set_title(f"{arch_name} (No Data)")
             ax.axis('off')
 
-    # Hide the 6th empty subplot in the 2x3 grid
     axes[5].axis('off')
 
     plt.tight_layout()
-    plt.savefig("plot/sorted_error_curves_multiseed.pdf", format="pdf", bbox_inches="tight")
-    # plt.show()
+    plt.savefig(f"plot/sorted_error_curves_multiseed_case{bus_number}.pdf", format="pdf", bbox_inches="tight")
 
     # -------------------------------------------------------------
-    # PLOT 2: Pooled Distribution of Maximum Violations (Seaborn Violin with density_norm="count")
+    # PLOT 2: Pooled Distribution of Maximum Violations
     # -------------------------------------------------------------
     plot_rows = []
     for arch_name, runs_data in arch_plot_artifacts.items():
         if runs_data:
-            # Pool all test sample violations across all evaluated seeds
             combined_viols = np.concatenate([r["max_violations"] for r in runs_data])
             viols_safe = np.clip(combined_viols, a_min=1e-10, a_max=None)
             
-            # CRITICAL: Take log10 BEFORE seaborn KDE so density evaluates correctly in log-space
             log_viols = np.log10(viols_safe)
-            
-            # Record exact sample count for multiline X-axis label
-            n_samples = len(log_viols)
             arch_label = f"{arch_name}"
             
-            # Append each sample as a row for Seaborn's long-form DataFrame requirement
             for lv in log_viols:
                 plot_rows.append({
                     "Architecture": arch_label,
@@ -461,42 +474,36 @@ if __name__ == "__main__":
         
         plt.figure(figsize=(12, 6.5))
         
-        # Paper-ready color palette for up to 5 architectures
         palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
         
-        # Generate Seaborn Violin Plot
         ax = sns.violinplot(
             data=df_plot,
             x="Architecture",
             y="Log_Max_Violation",
-            density_norm="count",  # Width of violin scales directly with sample count n
-            inner="box",           # Automatically draws median dot and quartile box inside
-            cut=0,                 # Stops KDE smoothing at actual observed min/max error bounds
+            density_norm="count",  
+            inner="box",           
+            cut=0,                 
             palette=palette[:df_plot["Architecture"].nunique()],
             linewidth=1.2,
             alpha=0.75
         )
         
-        # Style X-axis labels
         plt.xticks(fontsize=10.5, fontweight='bold')
         
-        # Plot solver tolerance line at log10(1e-4) = -4.0
         plt.axhline(y=-4.0, color='r', linestyle='--', linewidth=2, label='Solver Tolerance ($10^{-4}$)')
         
-        # Format Y-axis ticks back to scientific notation (powers of 10)
         y_min = int(np.floor(df_plot["Log_Max_Violation"].min()))
         y_max = int(np.ceil(df_plot["Log_Max_Violation"].max()))
         tick_locs = np.arange(y_min, y_max + 1, 1)
         plt.yticks(tick_locs, [f"$10^{{{int(loc)}}}$" for loc in tick_locs], fontsize=11)
         
-        plt.title("Constraint Violation Distribution Across 1000 Test Instances from 5 runs", fontsize=14, fontweight='bold')
-        plt.xlabel("", fontsize=12) # Hide x-axis label since architecture names are explanatory
+        plt.title(f"Constraint Violation Distribution Across {len(mask)} Test Instances (Case {bus_number})", fontsize=14, fontweight='bold')
+        plt.xlabel("", fontsize=12) 
         plt.ylabel("Max Constraint Violation (p.u.)", fontsize=12)
         plt.grid(True, axis='y', linestyle='--', alpha=0.7)
         plt.legend(fontsize=11, loc='upper right')
         
         plt.tight_layout()
-        plt.savefig("plot/violation_violinplots_pooled.pdf", format="pdf", bbox_inches="tight")
-        # plt.show()
+        plt.savefig(f"plot/violation_violinplots_pooled_case{bus_number}.pdf", format="pdf", bbox_inches="tight")
     else:
         print("No violation data available to plot.")
