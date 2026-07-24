@@ -5,6 +5,8 @@
 #SBATCH --time=24:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
+#SBATCH --output=/dev/null   # Suppress default slurm-%j.out creation
+#SBATCH --error=/dev/null    # Suppress default slurm-%j.err creation
 
 # 1. Ensure a script was passed
 if [ -z "$1" ]; then
