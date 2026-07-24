@@ -418,7 +418,8 @@ if __name__ == "__main__":
             # 2. Checkpointing Logic: If this is the lowest validation loss we've seen, save it!
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model_rahul.state_dict(), model_save_path)
+                state_dict = model_rahul._orig_mod.state_dict() if hasattr(model_rahul, '_orig_mod') else model_rahul.state_dict()
+                torch.save(state_dict, model_save_path)
                 saved_flag = " [*SAVED BEST*]"
             else:
                 saved_flag = ""

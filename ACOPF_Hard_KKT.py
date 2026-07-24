@@ -437,7 +437,8 @@ if __name__ == "__main__":
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model_kkt.state_dict(), model_save_path)
+                state_dict = model_kkt._orig_mod.state_dict() if hasattr(model_kkt, '_orig_mod') else model_kkt.state_dict()
+                torch.save(state_dict, model_save_path)
                 saved_flag = " [*SAVED BEST*]"
             else:
                 saved_flag = ""
