@@ -364,7 +364,9 @@ if __name__ == "__main__":
         df_display_raw["Obj. Error (%)"] = df_display_raw.apply(lambda r: f"{r['Obj_Mean']:.2f} ({r['Obj_Std']:.2f})", axis=1)
         df_display_raw = df_display_raw[["Architecture", "Run", "Obj. Error (%)", "Max_Eq", "Mean_Eq", "Max_Ineq", "Mean_Ineq", "MAE_v", "MAE_pg", "MAE_qg", "Time_s"]]
         print(df_display_raw.to_string(index=False))
-
+        # Save the DataFrame directly to an Excel file named after the bus_number
+        df_display_raw.to_excel(f"{bus_number}.xlsx", index=False)
+        
         print("\n=========================================================================================")
         print("TABLE 2: PAPER-READY COMPARISON TABLE (AGGREGATED MEAN ± STD ACROSS SEEDS)")
         print("=========================================================================================")
