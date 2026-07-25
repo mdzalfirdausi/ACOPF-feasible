@@ -353,8 +353,58 @@ if __name__ == "__main__":
         "dual_feas": 10.0,
         "stationarity": 0.0005
     }
-    # --- MODIFICATION 2: Dynamic Batch Size & Dataset Pipeline ---
-    batch_size = args.batch_size 
+    # --- MODIFICATION 2: Auto-Tuning Batch Size via VRAM Dry-Run ---
+    if args.batch_size == 0 and torch.cuda.is_available():
+        print("\n[Auto-Tuner] Measuring KKT autograd memory footprint...")
+        
+        # 1. Instantiate temporary model
+        temp_model = RahulSinglePINN_Smax(problem["nbus"], problem["ngen"], problem["nbranch"]).to(device)
+        
+        # GET BASELINE MEMORY (Dataset + Model Weights)
+        torch.cuda.empty_cache()
+        baseline_mem = torch.cuda.memory_allocated() 
+        torch.cuda.reset_peak_memory_stats()
+        
+        # 2. Run a tiny test batch (size 8)
+        test_bs = 8
+        temp_Pd = train_Pd[:test_bs]
+        temp_Qd = train_Qd[:test_bs]
+        
+        loss, _ = compute_rahul_kkt_smax_loss(temp_model, temp_Pd, temp_Qd, problem, loss_weights_rahul)
+        loss.backward() # Backward pass allocates the gradient memory
+        
+        # 3. Measure ONLY the memory used by the forward/backward pass
+        peak_mem = torch.cuda.max_memory_allocated()
+        batch_mem_bytes = peak_mem - baseline_mem # Subtract the static dataset size
+        mem_per_sample = max(batch_mem_bytes / test_bs, 1024) # Ensure > 0
+        
+        # 4. Calculate max batch size targeting 85% of free VRAM
+        free_vram, _ = torch.cuda.mem_get_info()
+        target_vram = free_vram * 0.85 
+        
+        max_bs = int(target_vram / mem_per_sample)
+        
+        # Round down to the nearest power of 2 (e.g., 512, 1024, 2048)
+        batch_size = 2 ** (max_bs.bit_length() - 1)
+        
+        # Cap it so we don't exceed the actual dataset size
+        while batch_size > train_size:
+            batch_size //= 2
+            
+        # Safety floor
+        batch_size = max(batch_size, 32)
+
+        print(f"  -> Free VRAM: {free_vram / (1024**3):.2f} GB")
+        print(f"  -> Est. Memory per Sample: {mem_per_sample / (1024**2):.2f} MB")
+        print(f"  -> Auto-Selected Batch Size: {batch_size}")
+        
+        # Cleanup
+        del temp_model, loss, temp_Pd, temp_Qd
+        torch.cuda.empty_cache()
+    else:
+        # Fallback if running on CPU or if user manually provided a size > 0
+        batch_size = args.batch_size if args.batch_size > 0 else 1024
+
     train_dataset = TensorDataset(train_Pd, train_Qd)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
