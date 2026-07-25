@@ -123,16 +123,15 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             vv_f = vr_f**2 + vi_f**2
             vv_t = vr_t**2 + vi_t**2
             
-            # Voltage angle differences (cos/sin representations)
-            vc = vr_f * vr_t + vi_f * vi_t
-            vs = vi_f * vr_t - vr_f * vi_t
+            # EXACT MATCH WITH TRAINING SCRIPTS
+            v_rt_cross = vr_f * vr_t + vi_f * vi_t
+            v_it_cross = vr_f * vi_t - vi_f * vr_t
             
-            # Branch Active & Reactive Power Flows
-            pf = g11 * vv_f + g12 * vc + b12 * vs
-            qf = -b11 * vv_f - b12 * vc + g12 * vs
-            
-            pt = g22 * vv_t + g21 * vc - b21 * vs
-            qt = -b22 * vv_t - b21 * vc - g21 * vs
+            # Branch Active & Reactive Power Flows (Corrected)
+            pf = g11 * vv_f - (g12 - b21) * v_rt_cross + (g21 + b12) * v_it_cross
+            qf = -b11 * vv_f + (b12 + g21) * v_rt_cross + (b21 - g12) * v_it_cross
+            pt = g22 * vv_t - (g12 + b21) * v_rt_cross + (g21 - b12) * v_it_cross
+            qt = -b22 * vv_t + (b12 - g21) * v_rt_cross - (b21 + g12) * v_it_cross
             
             # Nodal Power Injections (Starts with Shunt Consumption)
             vp = Gs.expand(B, -1) * vv
@@ -156,15 +155,17 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             all_max_eq.append(eq_violations.max().item())
             all_mean_eq.append(eq_violations.mean().item())
 
-            # --- Inequality Constraints ---
+            # --- Inequality Constraints (Corrected Angle Bounds) ---
             g_sf = (pf**2 + qf**2) - smax.expand(B,-1)**2
             g_st = (pt**2 + qt**2) - smax.expand(B,-1)**2
             g_pg_max = pg - pmax.expand(B,-1)
             g_pg_min = pmin.expand(B,-1) - pg
             g_qg_max = qg - qmax.expand(B,-1)
             g_qg_min = qmin.expand(B,-1) - qg
-            g_ang_min = torch.tan(angmin.expand(B,-1)) * vc - vs
-            g_ang_max = vs - torch.tan(angmax.expand(B,-1)) * vc
+            
+            g_ang_min = torch.tan(angmin.expand(B,-1)) * v_rt_cross - v_it_cross
+            g_ang_max = v_it_cross - torch.tan(angmax.expand(B,-1)) * v_rt_cross
+            
             g_v_max = vv - (Vmax.expand(B,-1)**2)
             g_v_min = (Vmin.expand(B,-1)**2) - vv
 
