@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
 import os
-
+from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 torch.set_default_dtype(torch.float32)
 torch.set_float32_matmul_precision('high')
 
@@ -290,6 +290,13 @@ if __name__ == "__main__":
         required=True,
         help="Number of training epochs"
     )
+    # --- MODIFICATION 1: Add batch_size argument ---
+    parser.add_argument(
+        "--batch_size", 
+        type=int, 
+        default=0, # Changed from 1024 to 0 to trigger auto-tuning
+        help="Batch size (Set to 0 to auto-scale based on available GPU VRAM)"
+    )
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -337,26 +344,6 @@ if __name__ == "__main__":
             else:
                 problem[key] = value.to(device=device)
 
-    # 3. Setup Dataset Pipeline
-    batch_size = 1024 
-    train_dataset = TensorDataset(train_Pd, train_Qd)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
-    # 4. Model Instantiation & Parameter Configurations
-    model_rahul = RahulSinglePINN_Smax(
-        nbus=problem["nbus"],
-        ngen=problem["ngen"],
-        nbranch=problem["nbranch"]
-    ).to(device)
-
-    # Only compile on Linux to avoid Triton/MSVC errors on Windows
-    if sys.platform.startswith("linux") and torch.cuda.is_available():
-        print("Linux environment detected: Compiling model with torch.compile()...")
-        model_rahul = torch.compile(model_rahul)
-    else:
-        print("Windows or CPU environment detected: Skipping torch.compile()...")
-    # model_rahul = torch.compile(model_rahul)
-    
     loss_weights_rahul = {
         "primal_eq_p": 1000.0,
         "primal_eq_q": 1000.0,
@@ -366,15 +353,117 @@ if __name__ == "__main__":
         "dual_feas": 10.0,
         "stationarity": 0.0005
     }
+    # --- MODIFICATION 2: Auto-Tuning Batch Size via VRAM Dry-Run ---
+    if args.batch_size == 0 and torch.cuda.is_available():
+        print("\n[Auto-Tuner] Measuring KKT autograd memory footprint...")
+        
+        # 1. Instantiate temporary model
+        temp_model = RahulSinglePINN_Smax(problem["nbus"], problem["ngen"], problem["nbranch"]).to(device)
+        
+        # GET BASELINE MEMORY (Dataset + Model Weights)
+        torch.cuda.empty_cache()
+        baseline_mem = torch.cuda.memory_allocated() 
+        torch.cuda.reset_peak_memory_stats()
+        
+        # 2. Run a tiny test batch (size 8)
+        test_bs = 8
+        temp_Pd = train_Pd[:test_bs]
+        temp_Qd = train_Qd[:test_bs]
+        
+        loss, _ = compute_rahul_kkt_smax_loss(temp_model, temp_Pd, temp_Qd, problem, loss_weights_rahul)
+        loss.backward() # Backward pass allocates the gradient memory
+        
+        # 3. Measure ONLY the memory used by the forward/backward pass
+        peak_mem = torch.cuda.max_memory_allocated()
+        batch_mem_bytes = peak_mem - baseline_mem # Subtract the static dataset size
+        mem_per_sample = max(batch_mem_bytes / test_bs, 1024) # Ensure > 0
+        
+        # 4. Calculate max batch size targeting 85% of free VRAM
+        free_vram, _ = torch.cuda.mem_get_info()
+        target_vram = free_vram * 0.85 
+        
+        max_bs = int(target_vram / mem_per_sample)
+        
+        # Round down to the nearest power of 2 (e.g., 512, 1024, 2048)
+        batch_size = 2 ** (max_bs.bit_length() - 1)
+        
+        # Cap it so we don't exceed the actual dataset size
+        while batch_size > train_size:
+            batch_size //= 2
+            
+        # Safety floor
+        batch_size = max(batch_size, 32)
 
-    optimizer_rahul = optim.Adam(model_rahul.parameters(), lr=1e-3)
+        print(f"  -> Free VRAM: {free_vram / (1024**3):.2f} GB")
+        print(f"  -> Est. Memory per Sample: {mem_per_sample / (1024**2):.2f} MB")
+        print(f"  -> Auto-Selected Batch Size: {batch_size}")
+        
+        # Cleanup
+        del temp_model, loss, temp_Pd, temp_Qd
+        torch.cuda.empty_cache()
+    else:
+        # Fallback if running on CPU or if user manually provided a size > 0
+        batch_size = args.batch_size if args.batch_size > 0 else 1024
+
+    train_dataset = TensorDataset(train_Pd, train_Qd)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+    # --- MODIFICATION 3: Dynamic Learning Rate Scaling (Topology-Aware) ---
+    grid_complexity = problem["nbus"] + problem["ngen"] + problem["nbranch"]
+    
+    if grid_complexity < 300:        # e.g., case14, case30, case57
+        base_lr = 1e-3
+    elif grid_complexity < 1000:     # e.g., case118, case300
+        base_lr = 5e-4
+    else:                            # e.g., massive grids
+        base_lr = 1e-4
+        
+    ref_batch_size = 32
+    k = batch_size / ref_batch_size
+    scaled_lr = base_lr * k
+
+    # 4. Model Instantiation & Parameter Configurations
+    model_rahul = RahulSinglePINN_Smax(
+        nbus=problem["nbus"],
+        ngen=problem["ngen"],
+        nbranch=problem["nbranch"]
+    ).to(device)
+    
+    model_rahul = torch.compile(model_rahul)
+    
+
+    # --- MODIFICATION 4: Optimizer (AdamW) & Schedulers ---
+    optimizer_rahul = optim.AdamW(model_rahul.parameters(), lr=scaled_lr)
     epochs = args.epochs
+    
+    warmup_epochs = max(1, int(epochs * 0.05)) # 5% of total epochs
+
+    warmup_scheduler = LinearLR(
+        optimizer_rahul, 
+        start_factor=1.0 / k, 
+        end_factor=1.0, 
+        total_iters=warmup_epochs
+    )
+
+    main_scheduler = CosineAnnealingLR(
+        optimizer_rahul, 
+        T_max=epochs - warmup_epochs, 
+        eta_min=1e-6
+    )
+
+    scheduler = SequentialLR(
+        optimizer_rahul, 
+        schedulers=[warmup_scheduler, main_scheduler], 
+        milestones=[warmup_epochs]
+    )
+
     best_val_loss = float('inf')
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_save_path = f"./model/best_rahul_model_{case_name}_{epochs}epochs_{timestamp}.pth"
 
     # 5. Optimization Loop Execution
-    print("\nBeginning execution of parallelized training matrix loops for Rahul KKT PINN...")
+    print(f"\nTraining Settings: Batch={batch_size} | Base LR={base_lr} | Scaled LR={scaled_lr:.6f} | Warmup={warmup_epochs} epochs")
+    print("Beginning execution of parallelized training matrix loops for Rahul KKT PINN...")
     start_time = time.time()
     for epoch in range(epochs):
         model_rahul.train()
@@ -394,6 +483,9 @@ if __name__ == "__main__":
             
             torch.nn.utils.clip_grad_norm_(model_rahul.parameters(), 10.0)
             optimizer_rahul.step()
+            
+        # --- MODIFICATION 5: Step Scheduler per Epoch ---
+        scheduler.step()
             
         if epoch % 100 == 0:  
             model_rahul.eval()
