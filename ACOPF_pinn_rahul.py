@@ -348,8 +348,14 @@ if __name__ == "__main__":
         ngen=problem["ngen"],
         nbranch=problem["nbranch"]
     ).to(device)
-    
-    model_rahul = torch.compile(model_rahul)
+
+    # Only compile on Linux to avoid Triton/MSVC errors on Windows
+    if sys.platform.startswith("linux") and torch.cuda.is_available():
+        print("Linux environment detected: Compiling model with torch.compile()...")
+        model_rahul = torch.compile(model_rahul)
+    else:
+        print("Windows or CPU environment detected: Skipping torch.compile()...")
+    # model_rahul = torch.compile(model_rahul)
     
     loss_weights_rahul = {
         "primal_eq_p": 1000.0,
