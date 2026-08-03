@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 ACOPF Multi-Seed Model Evaluation Script
-Generates aggregated metrics (Mean ± Std across seeds) for DC3-style comparison tables 
-and rigorous pooled performance plots across 5 architectures x 5 runs each.
+Generates raw instance-level performance metrics across all test cases, 
+alongside standard aggregated tables and pooled performance plots.
 """
 import os
 # Prevent OpenMP runtime crash on Windows Conda environments
@@ -91,10 +91,10 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             
             total_time += (time.perf_counter() - start_time)
 
-            # Distance from Ground Truth (MAE)
-            all_mae_v.append(torch.abs(v - v_gt).mean().item())
-            all_mae_pg.append(torch.abs(pg - pg_gt).mean().item())
-            all_mae_qg.append(torch.abs(qg - qg_gt).mean().item())
+            # Distance from Ground Truth (MAE) - Computed per instance (dim=1)
+            all_mae_v.extend(torch.abs(v - v_gt).mean(dim=1).cpu().numpy())
+            all_mae_pg.extend(torch.abs(pg - pg_gt).mean(dim=1).cpu().numpy())
+            all_mae_qg.extend(torch.abs(qg - qg_gt).mean(dim=1).cpu().numpy())
 
             # --- Objective Value Error vs IPOPT (%) ---
             cost_nn = c2.expand(B,-1) * (pg ** 2) + c1.expand(B,-1) * pg + c0.expand(B,-1)
@@ -106,7 +106,7 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             # Calculate Signed Relative Percentage Error (Optimality Gap)
             obj_gap_pct = ((obj_nn - obj_ipopt) / obj_ipopt) * 100.0
             
-            # Store signed gap
+            # Store signed gap per instance
             all_objs.extend(obj_gap_pct.cpu().numpy())
             plot_data["nn_costs"].extend(obj_nn.cpu().numpy())
             plot_data["ipopt_costs"].extend(obj_ipopt.cpu().numpy())
@@ -152,8 +152,10 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             h_q = (qg @ problem["C_g"].T) - Qd_batch - vq
             
             eq_violations = torch.cat([h_p.abs(), h_q.abs()], dim=1)
-            all_max_eq.append(eq_violations.max().item())
-            all_mean_eq.append(eq_violations.mean().item())
+            
+            # Computed per instance
+            all_max_eq.extend(eq_violations.max(dim=1).values.cpu().numpy())
+            all_mean_eq.extend(eq_violations.mean(dim=1).cpu().numpy())
 
             # --- Inequality Constraints (Corrected Angle Bounds) ---
             g_sf = (pf**2 + qf**2) - smax.expand(B,-1)**2
@@ -176,8 +178,9 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
                 F.relu(g_v_max), F.relu(g_v_min)
             ], dim=1)
             
-            all_max_ineq.append(ineq_violations.max().item())
-            all_mean_ineq.append(ineq_violations.mean().item())
+            # Computed per instance
+            all_max_ineq.extend(ineq_violations.max(dim=1).values.cpu().numpy())
+            all_mean_ineq.extend(ineq_violations.mean(dim=1).cpu().numpy())
             
             # Absolute worst violation per sample for plotting
             batch_max_eq = eq_violations.max(dim=1).values
@@ -185,18 +188,17 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             batch_max_viol = torch.max(batch_max_eq, batch_max_ineq)
             plot_data["max_violations"].extend(batch_max_viol.cpu().numpy())
 
-    # Return raw numerical means for aggregation across seeds
+    # Return lists containing raw instance-level data for all test instances
     raw_metrics = {
-        "Obj_Mean": np.mean(all_objs),
-        "Obj_Std": np.std(all_objs),
-        "Max_Eq": np.max(all_max_eq),
-        "Mean_Eq": np.mean(all_mean_eq),
-        "Max_Ineq": np.max(all_max_ineq),
-        "Mean_Ineq": np.mean(all_mean_ineq),
-        "MAE_v": np.mean(all_mae_v),
-        "MAE_pg": np.mean(all_mae_pg),
-        "MAE_qg": np.mean(all_mae_qg),
-        "Time_s": total_time / total_samples
+        "Obj_Gap_pct": np.array(all_objs),
+        "Max_Eq": np.array(all_max_eq),
+        "Mean_Eq": np.array(all_mean_eq),
+        "Max_Ineq": np.array(all_max_ineq),
+        "Mean_Ineq": np.array(all_mean_ineq),
+        "MAE_v": np.array(all_mae_v),
+        "MAE_pg": np.array(all_mae_pg),
+        "MAE_qg": np.array(all_mae_qg),
+        "Time_s": total_time / total_samples # Scalar, uniform per inference pass
     }
     
     plot_data["nn_costs"] = np.array(plot_data["nn_costs"])
@@ -220,9 +222,8 @@ if __name__ == "__main__":
     # =========================================================================
     # SYSTEM CONFIGURATION
     # =========================================================================
-    bus_number = args.bus_number  # <--- ONLY CHANGE THIS NUMBER (e.g., 14, 57, 162, 300)
-    # Note: Adjust the string format below if case 162 has a different suffix like '_ieee_dtc'
-    case_name = args.case_name  # <--- ONLY CHANGE THIS STRING (e.g., pglib_opf_case3_lmbd, pglib_opf_case14_ieee, etc.)
+    bus_number = args.bus_number
+    case_name = args.case_name
     total_samples = 10000
     model_dir = os.path.join(r"M:\projects\ACOPF-feasible\model", str(bus_number))
     
@@ -290,7 +291,7 @@ if __name__ == "__main__":
         search_pattern = os.path.join(model_dir, f"*{arch_keyword}*.pth")
         paths = sorted(glob.glob(search_pattern))
         if not paths:
-            print(f" ⚠️ WARNING: No checkpoints found matching '{arch_keyword}' in {model_dir}")
+            print(f"  ⚠️ WARNING: No checkpoints found matching '{arch_keyword}' in {model_dir}")
         return paths
 
     architectures_config = {
@@ -317,7 +318,7 @@ if __name__ == "__main__":
     }
 
     # 4. Evaluation Loop
-    raw_results_list = []
+    raw_results_dataframes = []
     # Structure: arch_plot_artifacts[arch_name] = [plot_data_run1, plot_data_run2, ...]
     arch_plot_artifacts = {arch: [] for arch in architectures_config.keys()}
 
@@ -331,7 +332,6 @@ if __name__ == "__main__":
         for run_idx, path in enumerate(config["paths"]):
             model = config["class"]()
             try:
-                # Inside evaluate_new.py around line 300:
                 state_dict = torch.load(path, map_location=device, weights_only=True)
                 # Strip '_orig_mod.' prefix added by torch.compile
                 new_state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
@@ -340,32 +340,48 @@ if __name__ == "__main__":
                 
                 raw_metrics, plot_data = evaluate_model(model, arch_name, test_loader, problem, device)
                 
-                # Store identifying metadata
-                raw_metrics["Architecture"] = arch_name
-                raw_metrics["Run"] = f"Run {run_idx + 1}"
-                raw_results_list.append(raw_metrics)
+                # Convert raw instance metrics into a DataFrame for this run
+                num_instances = len(raw_metrics["Obj_Gap_pct"])
+                df_run = pd.DataFrame({
+                    "Architecture": [arch_name] * num_instances,
+                    "Run": [f"Run {run_idx + 1}"] * num_instances,
+                    "Instance_ID": np.arange(num_instances),
+                    "Obj. Error (%)": raw_metrics["Obj_Gap_pct"],
+                    "Max_Eq": raw_metrics["Max_Eq"],
+                    "Mean_Eq": raw_metrics["Mean_Eq"],
+                    "Max_Ineq": raw_metrics["Max_Ineq"],
+                    "Mean_Ineq": raw_metrics["Mean_Ineq"],
+                    "MAE_v": raw_metrics["MAE_v"],
+                    "MAE_pg": raw_metrics["MAE_pg"],
+                    "MAE_qg": raw_metrics["MAE_qg"],
+                    "Time_s": [raw_metrics["Time_s"]] * num_instances
+                })
+                raw_results_dataframes.append(df_run)
                 
                 arch_plot_artifacts[arch_name].append(plot_data)
-                print(f"  [Run {run_idx+1}] Evaluated successfully | Obj: {raw_metrics['Obj_Mean']:.2f} | Max Viol: {raw_metrics['Max_Ineq']:.4f}")
+                print(f"  [Run {run_idx+1}] Evaluated successfully | Average Obj Gap: {raw_metrics['Obj_Gap_pct'].mean():.2f}% | Max Viol Across Set: {raw_metrics['Max_Ineq'].max():.4f}")
                 
             except Exception as e:
                 print(f"  [Run {run_idx+1}] Failed due to error: {e}")
 
     # =========================================================================
-    # METRICS AGGREGATION & REPORTING
+    # METRICS AGGREGATION & EXPORT
     # =========================================================================
-    df_raw = pd.DataFrame(raw_results_list)
-    
-    if not df_raw.empty:
+    if raw_results_dataframes:
+        # Concatenate all instance data across all runs and architectures
+        df_raw = pd.concat(raw_results_dataframes, ignore_index=True)
+        
         print("\n=========================================================================================")
-        print("TABLE 1: INDIVIDUAL CHECKPOINT EVALUATIONS (ALL IDENTIFIED RUNS)")
+        print("TABLE 1: INSTANCE-LEVEL CHECKPOINT EVALUATIONS (PREVIEW)")
         print("=========================================================================================")
-        df_display_raw = df_raw.copy()
-        df_display_raw["Obj. Error (%)"] = df_display_raw.apply(lambda r: f"{r['Obj_Mean']:.2f} ({r['Obj_Std']:.2f})", axis=1)
-        df_display_raw = df_display_raw[["Architecture", "Run", "Obj. Error (%)", "Max_Eq", "Mean_Eq", "Max_Ineq", "Mean_Ineq", "MAE_v", "MAE_pg", "MAE_qg", "Time_s"]]
-        print(df_display_raw.to_string(index=False))
-        # Save the DataFrame directly to an Excel file named after the bus_number
-        df_display_raw.to_excel(f"{bus_number}.xlsx", index=False)
+        # Print a tiny preview so the terminal isn't flooded with tens of thousands of rows
+        print(df_raw.head(15).to_string(index=False))
+        print(f"... and {len(df_raw) - 15} more rows across {len(raw_results_dataframes)} runs.")
+        
+        # Save the full, instance-by-instance raw DataFrame to Excel
+        output_excel = f"{bus_number}_raw.xlsx"
+        df_raw.to_excel(output_excel, index=False)
+        print(f"\n✅ SUCCESS: Full raw instance dataset explicitly written to '{output_excel}'")
         
         print("\n=========================================================================================")
         print("TABLE 2: PAPER-READY COMPARISON TABLE (AGGREGATED MEAN ± STD ACROSS SEEDS)")
@@ -373,11 +389,11 @@ if __name__ == "__main__":
         
         summary_rows = []
         for arch_name, group in df_raw.groupby("Architecture", sort=False):
-            n_seeds = len(group)
-            mean_gap = group['Obj_Mean'].mean()
-            std_gap = group['Obj_Mean'].std()
+            # Because this is un-aggregated now, group.Run.nunique() yields number of seeds
+            n_seeds = group['Run'].nunique()
             
-            # Format explicitly with sign (+/-) so reviewers see cost undercutting
+            mean_gap = group['Obj. Error (%)'].mean()
+            std_gap = group['Obj. Error (%)'].std()
             gap_str = f"{mean_gap:+.4f} ± {std_gap:.4f}"
             
             summary_rows.append({
@@ -452,7 +468,7 @@ if __name__ == "__main__":
     axes[5].axis('off')
 
     plt.tight_layout()
-    plt.savefig(f"plot/sorted_error_curves_multiseed_case{bus_number}.pdf", format="pdf", bbox_inches="tight")
+    plt.savefig(f"plot/sorted_error_curves_multiseed_case{bus_number}_raw.pdf", format="pdf", bbox_inches="tight")
 
     # -------------------------------------------------------------
     # PLOT 2: Pooled Distribution of Maximum Violations
@@ -466,21 +482,14 @@ if __name__ == "__main__":
             log_viols = np.log10(viols_safe)
             arch_label = f"{arch_name}"
             
-            # Update: Zip both raw and log values so the prof has both
-            for raw_val, log_val in zip(viols_safe, log_viols):
+            for lv in log_viols:
                 plot_rows.append({
                     "Architecture": arch_label,
-                    "Raw_Max_Violation": raw_val,
-                    "Log_Max_Violation": log_val
+                    "Log_Max_Violation": lv
                 })
 
     if plot_rows:
         df_plot = pd.DataFrame(plot_rows)
-        
-        # NEW: Save the exact violin plot data to a CSV file
-        data_path = f"result/violin_plot_data_case{bus_number}.csv"
-        df_plot.to_csv(data_path, index=False)
-        print(f"Violin plot data successfully saved to: {data_path}")
         
         plt.figure(figsize=(12, 6.5))
         
@@ -514,6 +523,6 @@ if __name__ == "__main__":
         plt.legend(fontsize=11, loc='upper right')
         
         plt.tight_layout()
-        plt.savefig(f"plot/violation_violinplots_pooled_case{bus_number}.pdf", format="pdf", bbox_inches="tight")
+        plt.savefig(f"plot/violation_violinplots_pooled_case{bus_number}_raw.pdf", format="pdf", bbox_inches="tight")
     else:
         print("No violation data available to plot.")
