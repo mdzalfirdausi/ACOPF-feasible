@@ -460,43 +460,67 @@ if __name__ == "__main__":
     plot_rows = []
     for arch_name, runs_data in arch_plot_artifacts.items():
         if runs_data:
-            combined_viols = np.concatenate([r["max_violations"] for r in runs_data])
-            viols_safe = np.clip(combined_viols, a_min=1e-10, a_max=None)
-            
-            log_viols = np.log10(viols_safe)
-            arch_label = f"{arch_name}"
-            
-            # Update: Zip both raw and log values so the prof has both
-            for raw_val, log_val in zip(viols_safe, log_viols):
-                plot_rows.append({
-                    "Architecture": arch_label,
-                    "Raw_Max_Violation": raw_val,
-                    "Log_Max_Violation": log_val
-                })
+            # Loop through each run separately to keep track of the Run ID
+            for run_idx, run_artifact in enumerate(runs_data):
+                viols = run_artifact["max_violations"]
+                viols_safe = np.clip(viols, a_min=1e-10, a_max=None)
+                log_viols = np.log10(viols_safe)
+                
+                # Enumerate to keep track of the exact test Instance ID (0 to 999)
+                for instance_id, (raw_val, log_val) in enumerate(zip(viols_safe, log_viols)):
+                    plot_rows.append({
+                        "Architecture": arch_name,
+                        "Run": f"Run {run_idx + 1}",
+                        "Instance_ID": instance_id,
+                        "Raw_Max_Violation": raw_val,
+                        "Log_Max_Violation": log_val
+                    })
 
     if plot_rows:
         df_plot = pd.DataFrame(plot_rows)
         
-        # NEW: Save the exact violin plot data to a CSV file
-        data_path = f"result/violin_plot_data_case{bus_number}.csv"
-        df_plot.to_csv(data_path, index=False)
-        print(f"Violin plot data successfully saved to: {data_path}")
+        os.makedirs("result", exist_ok=True)
         
+        # 1. Save the full raw data (25,000 rows)
+        data_path_raw = f"result/violin_plot_data_case{bus_number}.csv"
+        df_plot.to_csv(data_path_raw, index=False)
+        print(f"Raw violin plot data successfully saved to: {data_path_raw}")
+        
+        # 2. NEW: Aggregate across the 5 runs (averaging per Instance_ID for each Architecture)
+        # This collapses 25,000 rows into exactly 5,000 rows
+        df_agg = df_plot.groupby(['Architecture', 'Run'], as_index=False)[['Raw_Max_Violation', 'Log_Max_Violation']].mean()
+        
+        # Save the aggregated data
+        data_path_agg = f"result/violin_plot_data_case{bus_number}_aggregated.csv"
+        df_agg.to_csv(data_path_agg, index=False)
+        print(f"Aggregated violin plot data successfully saved to: {data_path_agg}")
+        
+        # PLOTTING: Using the pooled raw data (df_plot) to accurately show the full distribution variance
         plt.figure(figsize=(12, 6.5))
         
         palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
         
+        # ax = sns.violinplot(
+        #     data=df_plot,
+        #     x="Architecture",
+        #     y="Log_Max_Violation",
+        #     density_norm="count",  
+        #     inner="box",           
+        #     cut=0,                 
+        #     palette=palette[:df_plot["Architecture"].nunique()],
+        #     linewidth=1.2,
+        #     alpha=0.75
+        # )
+
         ax = sns.violinplot(
             data=df_plot,
             x="Architecture",
             y="Log_Max_Violation",
-            density_norm="count",  
-            inner="box",           
-            cut=0,                 
-            palette=palette[:df_plot["Architecture"].nunique()],
-            linewidth=1.2,
-            alpha=0.75
-        )
+            hue="Architecture",
+            palette="Set2",
+            inner="quartile",
+            density_norm="area",
+            cut=0,    )
         
         plt.xticks(fontsize=10.5, fontweight='bold')
         
