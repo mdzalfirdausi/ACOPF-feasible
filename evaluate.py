@@ -531,7 +531,7 @@ if __name__ == "__main__":
         tick_locs = np.arange(y_min, y_max + 1, 1)
         plt.yticks(tick_locs, [f"$10^{{{int(loc)}}}$" for loc in tick_locs], fontsize=11)
         
-        plt.title(f"Constraint Violation Distribution Across {len(mask)} Test Instances (Case {bus_number})", fontsize=14, fontweight='bold')
+        plt.title(f"Constraint Violation Distribution Pooled across 5 runs $\times$ {len(mask)} Test Instances (Case {bus_number})", fontsize=14, fontweight='bold')
         plt.xlabel("", fontsize=12) 
         plt.ylabel("Max Constraint Violation (p.u.)", fontsize=12)
         plt.grid(True, axis='y', linestyle='--', alpha=0.7)
