@@ -319,7 +319,7 @@ if __name__ == "__main__":
         for Pd_batch, Qd_batch in train_loader:
             optimizer_dc3.zero_grad()
             
-            # Inner loop configuration (corr_steps=5) for deep constraint completion
+            # Inner feasibility-repair loop used to construct correction targets
             loss, diag = compute_dc3_qcqp_smax_loss(
                 model=model_dc3, 
                 Pd_batch=Pd_batch, 
