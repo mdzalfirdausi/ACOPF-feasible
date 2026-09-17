@@ -17,6 +17,8 @@ from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 import seaborn as sns
 import argparse
 
@@ -512,18 +514,68 @@ if __name__ == "__main__":
         #     alpha=0.75
         # )
 
+        architecture_order = df_plot["Architecture"].drop_duplicates().tolist()
+        colors = sns.color_palette("Set2", n_colors=len(architecture_order))
+        palette_map = dict(zip(architecture_order, colors))
+
         ax = sns.violinplot(
             data=df_plot,
             x="Architecture",
             y="Log_Max_Violation",
             hue="Architecture",
-            palette="Set2",
+            order=architecture_order,
+            hue_order=architecture_order,
+            palette=palette_map,
             inner="quartile",
             density_norm="area",
-            cut=0,    )
+            cut=0,
+            legend=False
+        )
+
+        ax.axhline(
+            y=-4.0,
+            color="red",
+            linestyle="--",
+            linewidth=2
+        )
+
+        # Colored violin legend
+        legend_handles = [
+            Patch(
+                facecolor=palette_map[architecture],
+                edgecolor="black",
+                label=architecture
+            )
+            for architecture in architecture_order
+        ]
+
+        # Feasibility-tolerance legend entry
+        legend_handles.append(
+            Line2D(
+                [0], [0],
+                color="red",
+                linestyle="--",
+                linewidth=2,
+                label=r"Feasibility tolerance ($10^{-4}$ p.u.)"
+            )
+        )
+
+        ax.legend(
+            handles=legend_handles,
+            title="Architecture",
+            fontsize=9,
+            title_fontsize=10,
+            loc="upper right",
+            bbox_to_anchor=(0.985, 0.985),
+            borderaxespad=0,
+            frameon=True,
+            framealpha=0.95,
+            edgecolor="gray"
+        )
         
         plt.xticks(fontsize=10.5, fontweight='bold')
         
+        # Add your threshold line
         plt.axhline(y=-4.0, color='r', linestyle='--', linewidth=2, label='Solver Tolerance ($10^{-4}$)')
         
         y_min = int(np.floor(df_plot["Log_Max_Violation"].min()))
@@ -531,11 +583,32 @@ if __name__ == "__main__":
         tick_locs = np.arange(y_min, y_max + 1, 1)
         plt.yticks(tick_locs, [f"$10^{{{int(loc)}}}$" for loc in tick_locs], fontsize=11)
         
-        plt.title(f"Constraint Violation Distribution Pooled across 5 runs $\times$ {len(mask)} Test Instances (Case {bus_number})", fontsize=14, fontweight='bold')
+        plt.title(
+            f"Maximum Constraint Violations: {bus_number}-Bus Case\n"
+            f"Pooled across 5 runs ({len(mask):,} test instances per run)",
+            fontsize=14,
+            fontweight="bold"
+        )
         plt.xlabel("", fontsize=12) 
         plt.ylabel("Max Constraint Violation (p.u.)", fontsize=12)
         plt.grid(True, axis='y', linestyle='--', alpha=0.7)
-        plt.legend(fontsize=11, loc='upper right')
+        
+        # ---------------------------------------------------------
+        # UPDATED LEGEND CODE
+        # ---------------------------------------------------------
+        # 1. Grab all handles (the violin colors + the red line)
+        handles, labels = ax.get_legend_handles_labels()
+        
+        # # 2. Re-draw the legend combined
+        # plt.legend(
+        #     handles=handles, 
+        #     labels=labels, 
+        #     fontsize=11, 
+        #     loc='upper right',
+        #     title="Legend",          # Optional: add a title to the legend box
+        #     title_fontsize=12
+        # )
+        # ---------------------------------------------------------
         
         plt.tight_layout()
         plt.savefig(f"plot/violation_violinplots_pooled_case{bus_number}.pdf", format="pdf", bbox_inches="tight")
