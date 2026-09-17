@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""
+ACOPF Unsupervised Baseline PINN Training Script
+Optimized for Intel i7-1255U / CUDA Acceleration
+"""
+import argparse
+from datetime import datetime
+import time
+import sys
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch import optim
+from torch.utils.data import TensorDataset, DataLoader
+import os
+torch.set_default_dtype(torch.float32)
+torch.set_float32_matmul_precision('high')
+
+# --- MODEL DEFINITION ---
+class AblatedQCQPMLP(nn.Module):
+    """
+    ABLATION STUDY MODEL:
+    Removes the Pre-Physics Projection (Tanh/Sigmoid layers).
+    Passes raw MLP outputs directly to the QCQP Physics Layer.
+    """
+    def __init__(self, nbus: int, ngen: int, slack_imag_idx: int, hidden: int = 512):
+        super().__init__()
+        self.nbus = nbus
+        self.ngen = ngen
+        self.in_dim = 2 * nbus
+        self.out_dim_v = 2 * nbus
+        self.out_dim_g = 2 * ngen 
+        self.slack_imag_idx = int(slack_imag_idx)
+
+        # Core MLP Matrix Layer Sequence
+        self.net = nn.Sequential(
+            nn.Linear(self.in_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, self.out_dim_v + self.out_dim_g),
+        )
+
+    def forward(self, Pd: torch.Tensor, Qd: torch.Tensor, problem: dict) -> tuple:
+        B = Pd.shape[0]
+        x = torch.cat([Pd, Qd], dim=-1)
+        raw = self.net(x)
+
+        # 1. Slice raw outputs
+        v_raw = raw[:, :self.out_dim_v]
+        g_raw = raw[:, self.out_dim_v:]
+        
+        pg_raw = g_raw[:, :self.ngen]
+        qg_raw = g_raw[:, self.ngen:]
+
+        # --- ABLATION: REMOVE TANH VOLTAGE BOUNDS ---
+        # Pass raw network output directly as voltage
+        v = v_raw 
+
+        # We must still enforce the slack bus reference to prevent rotation mathematically
+        v_clone = v.clone()
+        v_clone[:, self.slack_imag_idx] = 0.0
+        v = v_clone
+
+        # --- ABLATION: REMOVE SIGMOID GENERATION BOUNDS ---
+        # Pass raw network output directly as generation
+        pg = pg_raw
+        qg = qg_raw
+
+        return v, pg, qg
+# --- UTILS & LOSS FUNCTIONS ---
+def quad_batch_stack(v: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
+    # v: [B, d], M: [K, d, d] -> [B, K]
+    return torch.einsum("bi,kij,bj->bk", v, M, v)
+
+def compute_qcqp_loss(model: nn.Module, Pd_batch: torch.Tensor, Qd_batch: torch.Tensor, problem: dict, weights: dict):
+    B = Pd_batch.shape[0]
+    
+    # Predict variables
+    v, pg, qg = model(Pd_batch, Qd_batch, problem)
+
+    # --------------------------------------------------------
+    # A. PRIMAL EVALUATIONS (Graph / Branch-Incidence)
+    # --------------------------------------------------------
+    nbus = problem["nbus"]
+    f = problem["fbus"]
+    t = problem["tbus"]
+    
+    vr = v[:, :nbus]
+    vi = v[:, nbus:]
+    
+    # Extract voltages at connected buses
+    vr_f = vr[:, f]; vi_f = vi[:, f]
+    vr_t = vr[:, t]; vi_t = vi[:, t]
+    
+    vv_f = vr_f**2 + vi_f**2
+    vv_t = vr_t**2 + vi_t**2
+    
+    v_rt_cross = vr_f * vr_t + vi_f * vi_t
+    v_it_cross = vr_f * vi_t - vi_f * vr_t
+    
+    # 1. 1D Branch Flows
+    pf = problem["g11"] * vv_f - (problem["g12"] - problem["b21"]) * v_rt_cross + (problem["g21"] + problem["b12"]) * v_it_cross
+    qf = -problem["b11"] * vv_f + (problem["b12"] + problem["g21"]) * v_rt_cross + (problem["b21"] - problem["g12"]) * v_it_cross
+    pt = problem["g22"] * vv_t - (problem["g12"] + problem["b21"]) * v_rt_cross + (problem["g21"] - problem["b12"]) * v_it_cross
+    qt = -problem["b22"] * vv_t + (problem["b12"] - problem["g21"]) * v_rt_cross - (problem["b21"] + problem["g12"]) * v_it_cross
+    
+    # 2. Nodal Injections (Uses scatter_add)
+    vp = problem["Gs"] * (vr**2 + vi**2)
+    vq = -problem["Bs"] * (vr**2 + vi**2)
+    
+    f_exp = f.unsqueeze(0).expand(B, -1)
+    t_exp = t.unsqueeze(0).expand(B, -1)
+    
+    vp = vp.scatter_add(1, f_exp, pf)
+    vp = vp.scatter_add(1, t_exp, pt)
+    
+    vq = vq.scatter_add(1, f_exp, qf)
+    vq = vq.scatter_add(1, t_exp, qt)
+
+    # 3. Formulate Constraints
+    h_p = (pg @ problem["C_g"].T) - Pd_batch - vp
+    h_q = (qg @ problem["C_g"].T) - Qd_batch - vq
+    
+    smax = problem["smax"].unsqueeze(0).expand(B, -1)
+    g_sf = (pf**2 + qf**2) - smax**2
+    g_st = (pt**2 + qt**2) - smax**2
+    
+    angmin = problem["angmin"].unsqueeze(0).expand(B, -1)
+    angmax = problem["angmax"].unsqueeze(0).expand(B, -1)
+    g_ang_min = torch.tan(angmin) * v_rt_cross - v_it_cross
+    g_ang_max = v_it_cross - torch.tan(angmax) * v_rt_cross
+    
+    vv = vr**2 + vi**2
+    Vmax = problem["Vmax"].unsqueeze(0).expand(B, -1)
+    Vmin = problem["Vmin"].unsqueeze(0).expand(B, -1)
+    g_v_max = vv - Vmax**2
+    g_v_min = Vmin**2 - vv
+    
+    pmax = problem["pmax"].unsqueeze(0).expand(B, -1)
+    pmin = problem["pmin"].unsqueeze(0).expand(B, -1)
+    qmax = problem["qmax"].unsqueeze(0).expand(B, -1)
+    qmin = problem["qmin"].unsqueeze(0).expand(B, -1)
+    
+    g_pg_max = pg - pmax
+    g_pg_min = pmin - pg
+    g_qg_max = qg - qmax
+    g_qg_min = qmin - qg
+
+    # 4. Objective Cost
+    c2 = problem["c2"].unsqueeze(0).expand(B, -1)
+    c1 = problem["c1"].unsqueeze(0).expand(B, -1)
+    c0 = problem["c0"].unsqueeze(0).expand(B, -1)
+    cost_per_gen = c2 * (pg ** 2) + c1 * pg + c0
+    obj = cost_per_gen.sum(dim=1).mean()
+    
+    # Compute Penalties
+    loss_eq_p = h_p.pow(2).mean()
+    loss_eq_q = h_q.pow(2).mean()
+    
+    loss_thermal = F.relu(g_sf).pow(2).mean() + F.relu(g_st).pow(2).mean()
+    loss_ang = F.relu(g_ang_min).pow(2).mean() + F.relu(g_ang_max).pow(2).mean()
+    loss_v = F.relu(g_v_max).pow(2).mean() + F.relu(g_v_min).pow(2).mean()
+
+    total_loss = (
+        weights["eq_p"] * loss_eq_p +
+        weights["eq_q"] * loss_eq_q +
+        weights["thermal"] * loss_thermal +
+        weights["ang"] * loss_ang +
+        weights["v"] * loss_v +
+        weights["obj"] * obj
+    )
+
+    diagnostics = {
+        "loss_total": total_loss.detach().item(),
+        "obj_cost": obj.detach().item(),
+        "max_h_p": h_p.abs().max().detach().item(),
+        "max_h_q": h_q.abs().max().detach().item(),
+        "max_thermal": torch.max(F.relu(g_sf).max(), F.relu(g_st).max()).detach().item(),
+        "max_v_viol": torch.max(F.relu(g_v_max).max(), F.relu(g_v_min).max()).detach().item(),
+        "max_gen_viol": torch.max(
+            torch.max(F.relu(g_pg_max).max(), F.relu(g_pg_min).max()),
+            torch.max(F.relu(g_qg_max).max(), F.relu(g_qg_min).max())
+        ).detach().item()
+    }
+    return total_loss, diagnostics
+
+# --- MAIN EXECUTION PIPELINE ---
+if __name__ == "__main__":
+    # --- ARGUMENT PARSING ---
+    parser = argparse.ArgumentParser(description="ACOPF Unsupervised Baseline PINN Training")
+    parser.add_argument(
+        "--case_name", 
+        type=str, 
+        required=True,
+        help="Name of the grid case topology (without _<samples>.pt)"
+    )
+    parser.add_argument(
+        "--epochs", 
+        type=int, 
+        required=True,
+        help="Number of training epochs"
+    )
+    args = parser.parse_args()
+
+    # 0. Hardware Device Discovery & Optimization
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"CUDA Hardware Acceleration Active: {torch.cuda.get_device_name(0)}")
+    else:
+        device = torch.device("cpu")
+        # 1. Check if running under SLURM allocation first
+        if "SLURM_CPUS_PER_TASK" in os.environ:
+            max_threads = int(os.environ["SLURM_CPUS_PER_TASK"])
+        # 2. Check Linux cgroup process affinity (prevents oversubscription on shared nodes)
+        elif hasattr(os, "sched_getaffinity"):
+            max_threads = len(os.sched_getaffinity(0))
+        # 3. Fallback to total physical/logical cores (Windows / Mac / Local execution)
+        else:
+            max_threads = os.cpu_count() or 1  # Fallback to 1 if detection fails
+
+        torch.set_num_threads(max_threads)
+        print(f"Running on CPU Profile. Adaptive thread threshold established at {max_threads} threads.")
+
+    # 1. Load Data
+    case_name = args.case_name
+    total_samples = 10000
+    dataset_path = f'./dataset/{case_name}_{total_samples}.pt'
+    problem = torch.load(dataset_path, map_location=device)
+    # try:
+    #     problem = torch.load(dataset_path, map_location=device)
+
+    #     print("--- STEP 1: EXHAUSTIVE DATASET INTEGRITY CHECK ---")
+    #     for k, v in problem.items():
+    #         if isinstance(v, torch.Tensor):
+    #             nan_count = torch.isnan(v).sum().item()
+    #             inf_count = torch.isinf(v).sum().item()
+    #             if nan_count > 0 or inf_count > 0:
+    #                 raise ValueError(f"CRITICAL DATA CORRUPTION: Tensor '{k}' contains {nan_count} NaNs and {inf_count} Infs!")
+    #     print("All problem matrices are 100% clean of NaNs and Infs.")
+    # except FileNotFoundError:
+    #     print(f"CRITICAL: Admittance topology dataset not found at target: {dataset_path}")
+    #     sys.exit(1)
+
+    # 2. Extract Data Split Slices & Cast to Float32 
+    actual_total_samples = problem["Pd_all"].shape[0] 
+    train_size = int(0.8 * actual_total_samples)
+    val_size = int(0.1 * actual_total_samples)
+
+    print(f"Problem Geometry Linked -> Matrix Samples: {actual_total_samples}")
+    
+    # Slice arrays, cast to float32, and deploy to target device
+    train_Pd = problem["Pd_all"][:train_size].to(device=device, dtype=torch.float32)
+    train_Qd = problem["Qd_all"][:train_size].to(device=device, dtype=torch.float32)
+    val_Pd = problem["Pd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
+    val_Qd = problem["Qd_all"][train_size:train_size + val_size].to(device=device, dtype=torch.float32)
+
+    # Transition background system tensors to matching device AND float32 precision
+    for key, value in problem.items():
+        if isinstance(value, torch.Tensor):
+            if value.is_floating_point():
+                problem[key] = value.to(device=device, dtype=torch.float32)
+            else:
+                problem[key] = value.to(device=device)
+
+    # 3. Setup Dataset Pipeline
+    batch_size = 1024 
+    train_dataset = TensorDataset(train_Pd, train_Qd)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+    # 4. Model Instantiation & Parameter Configurations
+    slack_imag_idx = (problem["a_ref"] == 1).nonzero(as_tuple=True)[0].item()
+
+    # CHANGE THIS LINE to use the ablated model
+    model = AblatedQCQPMLP(
+        nbus=problem["nbus"],
+        ngen=problem["ngen"],
+        slack_imag_idx=slack_imag_idx
+    ).to(device)
+    
+    # Compile the model for fused CUDA kernels
+    model = torch.compile(model)
+
+    loss_weights = {
+        "eq_p": 1000.0,
+        "eq_q": 1000.0,
+        "thermal": 1.0,
+        "ang": 1.0,
+        "v": 1.0,
+        "obj": 0.0005
+    }
+
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    epochs = args.epochs
+    # --- Initialize checkpoint trackers ---
+    best_val_loss = float('inf')
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_save_path = f"./model/best_pinn_model_{case_name}_{epochs}epochs_{timestamp}.pth"
+
+    # 5. Optimization Loop Execution
+    start_time = time.time()
+    print("\nBeginning execution of parallelized training matrix loops...")
+    for epoch in range(epochs):
+        model.train()
+        
+        for Pd_batch, Qd_batch in train_loader:
+            optimizer.zero_grad()
+            loss, diag = compute_qcqp_loss(model, Pd_batch, Qd_batch, problem, loss_weights)
+            loss.backward()
+            
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0)
+            optimizer.step()
+
+        if epoch % 100 == 0:  
+            # 1. Switch to evaluation mode and freeze gradients
+            model.eval()
+            with torch.no_grad():
+                # Evaluate the entire validation set at once
+                val_loss, val_diag = compute_qcqp_loss(model, val_Pd, val_Qd, problem, loss_weights)
+            
+            # 2. Checkpointing Logic: If this is the lowest validation loss we've seen, save it!
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                torch.save(model.state_dict(), model_save_path)
+                saved_flag = " [*SAVED BEST*]"
+            else:
+                saved_flag = ""
+
+            # 3. Print the comparison
+            print(f"Epoch {epoch:4d} | Val Loss: {val_loss:.4f} | Val Cost: {val_diag['obj_cost']:7.2f} | "
+                  f"Val Max P-Miss: {val_diag['max_h_p']:.4f} | Max Q-Miss: {val_diag['max_h_q']:.4f} |" 
+                  f" Val Max Gen Viol: {val_diag['max_gen_viol']:.4f} | Val Max Thermal: {val_diag['max_thermal']:.4f}{saved_flag}")
+    end_time = time.time()
+    total_time_seconds = end_time - start_time
+    # Format into Hours, Minutes, and Seconds
+    hours, remainder = divmod(total_time_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    print("\n" + "="*50)
+    print(f"Training Complete!")
+    print(f"Total Training Time: {int(hours):02d}h {int(minutes):02d}m {seconds:05.2f}s")
+    print(f"Best model weights saved to: {model_save_path}")
+    print("="*50 + "\n")
