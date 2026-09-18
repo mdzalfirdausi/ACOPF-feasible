@@ -2,10 +2,10 @@
 #SBATCH --job-name=acopf
 #SBATCH --output=/home/g202210120/projects/ACOPF-feasible/logs/%j_%x.out
 #SBATCH --error=/home/g202210120/projects/ACOPF-feasible/logs/%j_%x.err
-#SBATCH --time=24:00:00
+#SBATCH --time=1:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=32
 #SBATCH --mem=160G
 #SBATCH --partition=gpu_x450
 #SBATCH --gres=gpu:1
