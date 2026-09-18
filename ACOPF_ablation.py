@@ -297,7 +297,7 @@ if __name__ == "__main__":
     # --- Initialize checkpoint trackers ---
     best_val_loss = float('inf')
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_save_path = f"./model/best_pinn_model_{case_name}_{epochs}epochs_{timestamp}.pth"
+    model_save_path = f"./model/best_ablation_model_{case_name}_{epochs}epochs_{timestamp}.pth"
 
     # 5. Optimization Loop Execution
     start_time = time.time()
