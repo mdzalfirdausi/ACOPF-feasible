@@ -27,6 +27,7 @@ import argparse
 from ACOPF_pinn_baseline import baselineQCQPMLP
 from ACOPF_pinn_rahul import RahulSinglePINN_Smax
 from ACOPF_Hard_KKT import HardKKT_QCQPMLP
+from ACOPF_ablation import AblatedQCQPMLP
 
 # --- CORE EVALUATION FUNCTION ---
 def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, problem: dict, device: torch.device):
@@ -315,6 +316,10 @@ if __name__ == "__main__":
         "Rahul's Model": {
             "class": lambda: RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device),
             "paths": get_model_paths("rahul_model")
+        },
+        "Ablated PINN": {
+            "class": lambda: AblatedQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+            "paths": get_model_paths("ablation_model") 
         }
     }
 
