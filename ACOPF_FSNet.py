@@ -1,7 +1,7 @@
 #!/usr/bin/env python3 
-"""
+""" 
 ACOPF FSNet (Feasibility-Seeking Neural Network) Training Script
-Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture
+Optimized for CUDA Acceleration / Intel i7 Hybrid Architecture 
 """
 import argparse
 from datetime import datetime
