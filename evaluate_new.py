@@ -564,7 +564,7 @@ if __name__ == "__main__":
     # HIERARCHICAL BOOTSTRAP
     # =========================================================================
 
-    def hierarchical_bootstrap(df, metric, n_boot=1000, seed=42):
+    def hierarchical_bootstrap(df, metric, n_boot=10000, seed=42):
         """
         Bootstrap hierarchy:
             training runs -> test instances within each sampled run
@@ -613,7 +613,7 @@ if __name__ == "__main__":
             boot_mean, ci_low, ci_high = hierarchical_bootstrap(
                 df_arch,
                 metric,
-                n_boot=1000,
+                n_boot=10000,
                 seed=42
             )
 
