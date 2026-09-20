@@ -256,58 +256,9 @@ def main():
     cold_success = np.zeros(n_eval, dtype=bool)
     cold_status = []
 
-    prev_pg = None
-    prev_qg = None
-    prev_v = None
-
-    # ============================================================
-    # Diagnostic for displayed test instance 46 (Python index 45)
-    # ============================================================
-    idx = 45
-
-    print("\n" + "="*68)
-    print("INSTANCE 46 LOAD / CAPACITY DIAGNOSTIC")
-    print("="*68)
-
-    print(f"Instance 45 total Pd = {Pd[44].sum():.6f}")
-    print(f"Instance 46 total Pd = {Pd[45].sum():.6f}")
-    print(f"Instance 47 total Pd = {Pd[46].sum():.6f}")
-
-    print(f"Instance 45 total Qd = {Qd[44].sum():.6f}")
-    print(f"Instance 46 total Qd = {Qd[45].sum():.6f}")
-    print(f"Instance 47 total Qd = {Qd[46].sum():.6f}")
-
-    print(f"Total Pmax = {np.sum(problem_np['pmax']):.6f}")
-    print(f"Total Pmin = {np.sum(problem_np['pmin']):.6f}")
-    print(f"Total Qmax = {np.sum(problem_np['qmax']):.6f}")
-    print(f"Total Qmin = {np.sum(problem_np['qmin']):.6f}")
-
-    print(
-        f"Max |Pd46-Pd45| = "
-        f"{np.max(np.abs(Pd[45] - Pd[44])):.6f}"
-    )
-
-    print(
-        f"Max |Qd46-Qd45| = "
-        f"{np.max(np.abs(Qd[45] - Qd[44])):.6f}"
-    )
-
     for i in range(n_eval):
         set_loads(m, Pd[i], Qd[i])
         set_cold_start(m, problem_np, nbus)
-
-        # Diagnostic: initialize displayed instance 46
-        # from the optimal solution of displayed instance 45
-        if i == 45:
-            print("\n>>> INSTANCE 46: starting from instance 45 optimum")
-
-            for g in m.GEN:
-                m.pg[g].value = float(prev_pg[g])
-                m.qg[g].value = float(prev_qg[g])
-
-            for j in m.BUS2:
-                if not m.v[j].fixed:
-                    m.v[j].value = float(prev_v[j])
 
         t0 = time.perf_counter()
         try:
@@ -319,22 +270,6 @@ def main():
             cold_times[i] = time.perf_counter() - t0
             ok = False
             term = f"{type(exc).__name__}: {exc}"
-
-        # Save optimal solution of displayed instance 45
-        if i == 44 and ok:
-            prev_pg = np.array([
-                pyo.value(m.pg[g]) for g in m.GEN
-            ])
-
-            prev_qg = np.array([
-                pyo.value(m.qg[g]) for g in m.GEN
-            ])
-
-            prev_v = np.array([
-                pyo.value(m.v[j]) for j in m.BUS2
-            ])
-
-            print(">>> Saved optimal solution from instance 45")
 
         cold_success[i] = ok
         cold_status.append(term)
