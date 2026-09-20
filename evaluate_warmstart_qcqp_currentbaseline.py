@@ -8,8 +8,9 @@ Important:
 - Reconstructs M_p, M_q, M_v, M_pf, M_qf, M_pt, M_qt, M_c, M_s in memory
   from the graph/branch coefficients already stored in the current dataset.
 - Imports build_acopf_model() from pyomo_ipopt_qcqp.py unchanged.
-- Performs a cold-start sanity check BEFORE evaluating any NN.
+- Recomputes a cold IPOPT baseline for EVERY selected test instance using the same current formulation and machine.
 - Uses NN pg/qg only as the IPOPT primal initialization; voltage remains flat.
+- Compares feasible objective gap and runtime against that newly recomputed cold baseline.
 """
 
 import os
@@ -226,20 +227,14 @@ def main():
     Pd_all = np.asarray(problem_np["Pd_all"][test_start:], dtype=float)
     Qd_all = np.asarray(problem_np["Qd_all"][test_start:], dtype=float)
 
-    gt_path = f"./result/ipopt_baseline_{args.case_name}_{n-test_start}_instances.npz"
-    gt = np.load(gt_path)
-    status = gt["status"]
-    mask = np.array([("ok" in str(s).lower()) or ("optimal" in str(s).lower()) for s in status])
-    original_ids = np.where(mask)[0]
-
-    Pd = Pd_all[mask]
-    Qd = Qd_all[mask]
-    gt_pg = np.asarray(gt["pg_optimal"][mask], dtype=float)
-    gt_time = np.asarray(gt["solve_time"][mask], dtype=float)
+    # Use the CURRENT test split directly.  The cold baseline is recomputed
+    # below with exactly the same formulation, solver, machine, and loads.
+    original_ids = np.arange(len(Pd_all), dtype=int)
+    Pd = Pd_all
+    Qd = Qd_all
 
     n_eval = min(args.eval_limit, len(Pd))
     Pd, Qd = Pd[:n_eval], Qd[:n_eval]
-    gt_pg, gt_time = gt_pg[:n_eval], gt_time[:n_eval]
     original_ids = original_ids[:n_eval]
 
     print("\nBuilding ORIGINAL matrix-QCQP Pyomo model...")
@@ -250,111 +245,69 @@ def main():
     solver.options["warm_start_init_point"] = "no"
 
     # -----------------------------------------------------------------
-    # MANDATORY SANITY CHECK
+    # COLD IPOPT BASELINE: recomputed here for every selected test instance
+    # using exactly this matrix-QCQP model and the original cold start.
     # -----------------------------------------------------------------
     print("\n" + "="*68)
-    print("SANITY CHECK: original matrix-QCQP model with original cold start")
+    print("COLD IPOPT BASELINE: current formulation, current machine")
     print("="*68)
-    set_loads(m, Pd[0], Qd[0])
-    set_cold_start(m, problem_np, nbus)
 
-    t0 = time.perf_counter()
-    sanity = solver.solve(m, tee=args.tee)
-    sanity_time = time.perf_counter() - t0
-    sanity_ok = success(sanity)
-    print(f"termination = {sanity.solver.termination_condition}")
-    print(f"success     = {sanity_ok}")
-    print(f"solve time  = {sanity_time:.6f} s")
-    print(f"stored time = {gt_time[0]:.6f} s")
+    cold_times = np.empty(n_eval, dtype=float)
+    cold_costs = np.empty(n_eval, dtype=float)
+    cold_success = np.zeros(n_eval, dtype=bool)
+    cold_status = []
 
-    if not sanity_ok:
-        print("\nSTOP: the reconstructed matrix-QCQP model did not reproduce a")
-        print("successful cold IPOPT solve. No NN warm-start experiment was run.")
+    for i in range(n_eval):
+        set_loads(m, Pd[i], Qd[i])
+        set_cold_start(m, problem_np, nbus)
+
+        t0 = time.perf_counter()
+        try:
+            res = solver.solve(m, tee=args.tee)
+            cold_times[i] = time.perf_counter() - t0
+            ok = success(res)
+            term = str(res.solver.termination_condition)
+        except Exception as exc:
+            cold_times[i] = time.perf_counter() - t0
+            ok = False
+            term = f"{type(exc).__name__}: {exc}"
+
+        cold_success[i] = ok
+        cold_status.append(term)
+
+        if ok:
+            pg_sol = np.array([pyo.value(m.pg[g]) for g in m.GEN], dtype=float)
+            c2 = np.asarray(problem_np["c2"], dtype=float)
+            c1 = np.asarray(problem_np["c1"], dtype=float)
+            c0 = np.asarray(problem_np["c0"], dtype=float)
+            cold_costs[i] = float(np.sum(c2*pg_sol**2 + c1*pg_sol + c0))
+        else:
+            cold_costs[i] = np.nan
+
+        if i == 0 or (i + 1) % 25 == 0 or (i + 1) == n_eval:
+            print(
+                f"  [{i+1:4d}/{n_eval}] success={ok} status={term} "
+                f"time={cold_times[i]:.6f}s cost={cold_costs[i]:.6f}"
+            )
+
+    if not np.all(cold_success):
+        bad = int((~cold_success).sum())
+        print(f"\nSTOP: cold IPOPT failed for {bad}/{n_eval} selected instances.")
+        print("NN warm-start comparison was not run because the baseline must first be reliable.")
         sys.exit(2)
 
-    print("\nSANITY CHECK PASSED. Proceeding to NN dispatch initialization.\n")
-
-    sanity_pg = np.array([
-        pyo.value(m.pg[g]) for g in m.GEN
-    ])
-
-    sanity_cost = np.sum(
-        problem_np["c2"] * sanity_pg**2
-        + problem_np["c1"] * sanity_pg
-        + problem_np["c0"]
-    )
-
-    stored_pg = gt_pg[0]
-
-    stored_cost = np.sum(
-        problem_np["c2"] * stored_pg**2
-        + problem_np["c1"] * stored_pg
-        + problem_np["c0"]
-    )
-
-    print(f"NEW cold IPOPT cost    = {sanity_cost:.8f}")
-    print(f"STORED IPOPT cost      = {stored_cost:.8f}")
-    print(
-        f"Difference             = "
-        f"{100*(sanity_cost-stored_cost)/stored_cost:.6f}%"
-    )
-
-    # ============================================================
-    # CHECK WHETHER STORED IPOPT SOLUTION IS FEASIBLE
-    # IN THE RECONSTRUCTED QCQP MODEL
-    # ============================================================
-
-    print("\n" + "="*68)
-    print("STORED IPOPT SOLUTION FEASIBILITY CHECK")
-    print("="*68)
-
-    stored_v  = np.asarray(gt["v_optimal"][mask][0], dtype=float)
-    stored_pg = np.asarray(gt["pg_optimal"][mask][0], dtype=float)
-    stored_qg = np.asarray(gt["qg_optimal"][mask][0], dtype=float)
-
-    # Same load
-    set_loads(m, Pd[0], Qd[0])
-
-    # Put stored IPOPT solution into the reconstructed model
-    for g in m.GEN:
-        m.pg[g].value = float(stored_pg[g])
-        m.qg[g].value = float(stored_qg[g])
-
-    for j in m.BUS2:
-        if not m.v[j].fixed:
-            m.v[j].value = float(stored_v[j])
-
-    # Evaluate every constraint violation WITHOUT solving
-    max_eq_viol = 0.0
-    max_ineq_viol = 0.0
-
-    for con in m.component_data_objects(pyo.Constraint, active=True):
-
-        body = pyo.value(con.body)
-
-        # Equality
-        if con.equality:
-            target = pyo.value(con.lower)
-            viol = abs(body - target)
-            max_eq_viol = max(max_eq_viol, viol)
-
-        # Inequality
-        else:
-            viol = 0.0
-
-            if con.has_lb():
-                lb = pyo.value(con.lower)
-                viol = max(viol, lb - body)
-
-            if con.has_ub():
-                ub = pyo.value(con.upper)
-                viol = max(viol, body - ub)
-
-            max_ineq_viol = max(max_ineq_viol, max(0.0, viol))
-
-    print(f"Stored solution cost     = {stored_cost:.8f}")
-    print(f"Max equality violation   = {max_eq_viol:.8e}")
-    print(f"Max inequality violation = {max_ineq_viol:.8e}")
+    cold_df = pd.DataFrame({
+        "Instance_ID": original_ids,
+        "Cold_IPOPT_Status": cold_status,
+        "Cold_IPOPT_Success": cold_success,
+        "Cold_IPOPT_Time_s": cold_times,
+        "Cold_IPOPT_Cost": cold_costs,
+    })
+    cold_out = f"result/warmstart_cold_case{args.bus_number}.csv"
+    cold_df.to_csv(cold_out, index=False)
+    print(f"\nCold baseline saved -> {cold_out}")
+    print(f"Cold mean solve time = {cold_times.mean():.6f} s")
+    print("\nCOLD BASELINE PASSED. Proceeding to NN dispatch initialization.\n")
 
     # Torch problem remains the CURRENT graph representation used by the NNs.
     problem = {}
@@ -379,8 +332,9 @@ def main():
         "Rahul's Model": (lambda: RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device), paths("rahul_model")),
     }
 
-    c2, c1, c0 = problem_np["c2"], problem_np["c1"], problem_np["c0"]
-    gt_cost = np.sum(c2[None, :]*gt_pg**2 + c1[None, :]*gt_pg + c0[None, :], axis=1)
+    c2 = np.asarray(problem_np["c2"], dtype=float)
+    c1 = np.asarray(problem_np["c1"], dtype=float)
+    c0 = np.asarray(problem_np["c0"], dtype=float)
 
     rows = []
 
@@ -425,7 +379,7 @@ def main():
                 if ok:
                     pg_sol = np.array([pyo.value(m.pg[g]) for g in m.GEN])
                     cost = float(np.sum(c2*pg_sol**2 + c1*pg_sol + c0))
-                    gap = 100.0*(cost-gt_cost[i])/gt_cost[i]
+                    gap = 100.0*(cost-cold_costs[i])/cold_costs[i]
                 else:
                     cost, gap = np.nan, np.nan
 
@@ -439,8 +393,9 @@ def main():
                     "NN_Time_s": nn_per_instance,
                     "NN_Initialized_IPOPT_Time_s": solve_time,
                     "Total_Online_Time_s": total,
-                    "Stored_Cold_IPOPT_Time_s": gt_time[i],
-                    "Speedup_vs_Stored_Cold": gt_time[i]/total if total > 0 else np.nan,
+                    "Cold_IPOPT_Time_s": cold_times[i],
+                    "Cold_IPOPT_Cost": cold_costs[i],
+                    "Speedup_vs_Cold_IPOPT": cold_times[i]/total if total > 0 else np.nan,
                     "Feasible_Cost": cost,
                     "Feasible_Obj_Gap_pct": gap,
                 })
@@ -459,8 +414,8 @@ def main():
             NN_Time_s=("NN_Time_s", "mean"),
             IPOPT_Time_s=("NN_Initialized_IPOPT_Time_s", "mean"),
             Total_Online_Time_s=("Total_Online_Time_s", "mean"),
-            Cold_IPOPT_Time_s=("Stored_Cold_IPOPT_Time_s", "mean"),
-            Speedup=("Speedup_vs_Stored_Cold", "mean"),
+            Cold_IPOPT_Time_s=("Cold_IPOPT_Time_s", "mean"),
+            Speedup=("Speedup_vs_Cold_IPOPT", "mean"),
             Feasible_Obj_Gap_pct=("Feasible_Obj_Gap_pct", "mean"),
         )
         run.to_csv(f"result/warmstart_runlevel_case{args.bus_number}.csv", index=False)
