@@ -237,6 +237,7 @@ def main():
     solver = pyo.SolverFactory("ipopt")
     solver.options["tol"] = 1e-6
     solver.options["max_iter"] = 3000
+    solver.options["max_cpu_time"] = 30.0
     solver.options["warm_start_init_point"] = "no"
 
     rows, Vs, PGs, QGs = [], [], [], []

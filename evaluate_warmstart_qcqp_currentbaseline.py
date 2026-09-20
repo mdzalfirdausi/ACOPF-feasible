@@ -289,12 +289,38 @@ def main():
                 f"time={cold_times[i]:.6f}s cost={cold_costs[i]:.6f}"
             )
 
-    if not np.all(cold_success):
-        bad = int((~cold_success).sum())
-        print(f"\nSTOP: cold IPOPT failed for {bad}/{n_eval} selected instances.")
-        print("NN warm-start comparison was not run because the baseline must first be reliable.")
-        sys.exit(2)
+    # ============================================================
+    # Keep only instances with a successful cold-IPOPT reference.
+    # The EXACT same subset is then used for every NN architecture/run.
+    # ============================================================
 
+    n_requested = n_eval
+    valid = cold_success.copy()
+    n_valid = int(valid.sum())
+    n_failed = int((~valid).sum())
+
+    print(
+        f"\nCold IPOPT reference success: "
+        f"{n_valid}/{n_requested} "
+        f"({100.0 * n_valid / n_requested:.2f}%)"
+    )
+
+    if n_failed > 0:
+        failed_ids = original_ids[~valid]
+
+        print(f"Cold IPOPT failed on {n_failed} instance(s).")
+        print(f"Failed Instance_ID(s): {failed_ids.tolist()}")
+        print(
+            "These instances are excluded from the paired NN-initialized "
+            "IPOPT comparison."
+        )
+
+    if n_valid == 0:
+        raise RuntimeError(
+            "No successful cold-IPOPT reference instances are available."
+        )
+
+    # Save the COMPLETE cold-baseline results BEFORE filtering
     cold_df = pd.DataFrame({
         "Instance_ID": original_ids,
         "Cold_IPOPT_Status": cold_status,
@@ -302,11 +328,31 @@ def main():
         "Cold_IPOPT_Time_s": cold_times,
         "Cold_IPOPT_Cost": cold_costs,
     })
+
     cold_out = f"result/warmstart_cold_case{args.bus_number}.csv"
     cold_df.to_csv(cold_out, index=False)
-    print(f"\nCold baseline saved -> {cold_out}")
-    print(f"Cold mean solve time = {cold_times.mean():.6f} s")
-    print("\nCOLD BASELINE PASSED. Proceeding to NN dispatch initialization.\n")
+
+    print(f"Cold baseline saved -> {cold_out}")
+
+    # ------------------------------------------------------------
+    # Apply ONE common mask to everything used below.
+    # ------------------------------------------------------------
+
+    Pd = Pd[valid]
+    Qd = Qd[valid]
+
+    original_ids = original_ids[valid]
+
+    cold_times = cold_times[valid]
+    cold_costs = cold_costs[valid]
+
+    # From here onward n_eval means the number of valid paired cases.
+    n_eval = n_valid
+
+    print(
+        f"Proceeding with {n_eval} common reference-feasible "
+        f"instances for every architecture and run.\n"
+    )
 
     # Torch problem remains the CURRENT graph representation used by the NNs.
     problem = {}
