@@ -431,26 +431,26 @@ if __name__ == "__main__":
             summary_rows.append({
                 "Architecture": f"{arch_name} (n={n_seeds})",
                 "Optimality Gap (%)": (
-                        f"{mean_gap:+.4f} ± {std_gap:.4f} "
-                        f"[{gap_lo:.4f}, {gap_hi:.4f}]"
-                    ),
+                    f"{mean_gap:+.2f} ± {std_gap:.2f} "
+                    f"[{gap_lo:.2f}, {gap_hi:.2f}]"
+                ),
                 "Max Eq. (p.u.)": (
-                        f"{group['Max_Eq'].mean():.4f} ± {group['Max_Eq'].std():.4f} "
-                        f"[{maxeq_lo:.4f}, {maxeq_hi:.4f}]"
+                        f"{group['Max_Eq'].mean():.2f} ± {group['Max_Eq'].std():.2f} "
+                        f"[{maxeq_lo:.2f}, {maxeq_hi:.2f}]"
                     ),
                 "Mean Eq. (p.u.)": (
-                        f"{group['Mean_Eq'].mean():.4f} ± {group['Mean_Eq'].std():.4f} "
-                        f"[{meaneq_lo:.4f}, {meaneq_hi:.4f}]"
+                        f"{group['Mean_Eq'].mean():.2f} ± {group['Mean_Eq'].std():.2f} "
+                        f"[{meaneq_lo:.2f}, {meaneq_hi:.2f}]"
                     ),
-                #f"{group['Mean_Eq'].mean():.4f} ± {group['Mean_Eq'].std():.4f}",
+                #f"{group['Mean_Eq'].mean():.2f} ± {group['Mean_Eq'].std():.2f}",
                 "Max Ineq. (p.u.)": (
-                        f"{group['Max_Ineq'].mean():.4f} ± {group['Max_Ineq'].std():.4f} "
-                        f"[{maxineq_lo:.4f}, {maxineq_hi:.4f}]"
+                        f"{group['Max_Ineq'].mean():.2f} ± {group['Max_Ineq'].std():.2f} "
+                        f"[{maxineq_lo:.2f}, {maxineq_hi:.2f}]"
                     ),
-                #f"{group['Max_Ineq'].mean():.4f} ± {group['Max_Ineq'].std():.4f}",
+                #f"{group['Max_Ineq'].mean():.2f} ± {group['Max_Ineq'].std():.2f}",
                 "Mean Ineq. (p.u.)": (
-                        f"{group['Mean_Ineq'].mean():.4f} ± {group['Mean_Ineq'].std():.4f} "
-                        f"[{meanineq_lo:.4f}, {meanineq_hi:.4f}]"
+                        f"{group['Mean_Ineq'].mean():.2f} ± {group['Mean_Ineq'].std():.2f} "
+                        f"[{meanineq_lo:.2f}, {meanineq_hi:.2f}]"
                     ),
                 #f"{group['Mean_Ineq'].mean():.4f} ± {group['Mean_Ineq'].std():.4f}",
                 "MAE v": f"{group['MAE_v'].mean():.5f}",
@@ -613,7 +613,7 @@ if __name__ == "__main__":
             boot_mean, ci_low, ci_high = hierarchical_bootstrap(
                 df_arch,
                 metric,
-                n_boot=10000,
+                n_boot=1000,
                 seed=42
             )
 
