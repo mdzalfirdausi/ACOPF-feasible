@@ -202,7 +202,7 @@ def main():
     parser.add_argument("--case_name", required=True)
     parser.add_argument("--bus_number", type=int, required=True)
     parser.add_argument("--total_samples", type=int, default=10000)
-    parser.add_argument("--eval_limit", type=int, default=None)
+    parser.add_argument("--eval_limit", type=int, default=1000)
     parser.add_argument("--start_idx", type=int, default=0)
     parser.add_argument("--end_idx", type=int, default=None)
     parser.add_argument("--chunk_id", type=str, default=None)
