@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=16G
+#SBATCH --mem=24G
 #SBATCH --array=0-99%10
 #SBATCH --output=/home/g202210120/projects/ACOPF-feasible/logs/ws_%A_%a.out
 #SBATCH --error=/home/g202210120/projects/ACOPF-feasible/logs/ws_%A_%a.err
@@ -113,7 +113,7 @@ echo "Start time  : $(date)"
 
 CMD=(
     "$PYTHON"
-    evaluate_warmstart_qcqp_array.py
+    evaluate_warmstart_ablation_array.py
     --case_name "$CASE_NAME"
     --bus_number "$BUS_NUMBER"
     --start_idx "$START_IDX"
