@@ -30,7 +30,7 @@ from pyomo_ipopt_qcqp import build_acopf_model
 from ACOPF_pinn_baseline import baselineQCQPMLP
 from ACOPF_pinn_rahul import RahulSinglePINN_Smax
 from ACOPF_Hard_KKT import HardKKT_QCQPMLP
-
+from ACOPF_ablation import AblatedQCQPMLP
 
 def to_numpy_problem(problem_pt):
     out = {}
@@ -376,6 +376,7 @@ def main():
         "FSNet": (lambda: baselineQCQPMLP(nbus, ngen, slack_imag_idx).to(device), paths("fsnet_model")),
         "KKT": (lambda: HardKKT_QCQPMLP(nbus, ngen, nbranch, slack_imag_idx).to(device), paths("hardkkt")),
         "Rahul's Model": (lambda: RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device), paths("rahul_model")),
+        # "Ablated PINN": (lambda: AblatedQCQPMLP(nbus, ngen, slack_imag_idx).to(device), paths("ablation_model")),
     }
 
     c2 = np.asarray(problem_np["c2"], dtype=float)
