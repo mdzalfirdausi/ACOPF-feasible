@@ -122,9 +122,46 @@ def find_ablation_raw_files(bus):
     """
     Find Ablated PINN raw warm-start files.
 
-    Prefer chunked files if they exist. Otherwise use the
-    non-chunked file.
+    Handles:
+      - 14/57: non-chunked files in result/
+      - 162: chunk files in result/warmstart_ablation_case162_chunk/
+      - 300: chunk files in result/warmstart_case300_chunk/
+      - fallback: chunk files directly in result/
     """
+
+    # --------------------------------------------------------
+    # Known chunk directories
+    # --------------------------------------------------------
+
+    special_dirs = {
+        162: os.path.join(
+            RESULT_DIR,
+            "warmstart_ablation_case162_chunk",
+        ),
+
+        300: os.path.join(
+            RESULT_DIR,
+            "warmstart_case300_chunk",
+        ),
+    }
+
+    if bus in special_dirs:
+
+        chunk_pattern = os.path.join(
+            special_dirs[bus],
+            f"warmstart_ablation_raw_case{bus}_chunk*.csv",
+        )
+
+        chunk_files = sorted(
+            glob.glob(chunk_pattern)
+        )
+
+        if chunk_files:
+            return chunk_files, True
+
+    # --------------------------------------------------------
+    # Fallback: chunks directly under result/
+    # --------------------------------------------------------
 
     chunk_pattern = os.path.join(
         RESULT_DIR,
@@ -138,6 +175,10 @@ def find_ablation_raw_files(bus):
     if chunk_files:
         return chunk_files, True
 
+    # --------------------------------------------------------
+    # Non-chunked file, e.g. 14/57
+    # --------------------------------------------------------
+
     full_file = os.path.join(
         RESULT_DIR,
         f"warmstart_ablation_raw_case{bus}.csv",
@@ -147,7 +188,6 @@ def find_ablation_raw_files(bus):
         return [full_file], False
 
     return [], False
-
 
 def normalize_columns(df):
     """
