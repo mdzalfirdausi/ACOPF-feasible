@@ -468,16 +468,148 @@ def main():
         f"chunk={chunk_tag}"
     )
 
+###############################################################################################################
     # ========================================================
-    # Load EXISTING cold-IPOPT reference
+    # Load EXISTING non-chunked cold-IPOPT reference
+    # and select only this array task's Instance_IDs
     # ========================================================
 
     cold_file = (
         f"result/"
         f"warmstart_cold_case"
-        f"{args.bus_number}_"
-        f"chunk{chunk_tag}.csv"
+        f"{args.bus_number}.csv"
     )
+
+    if not os.path.exists(cold_file):
+        raise FileNotFoundError(
+            f"Cold reference not found: {cold_file}"
+        )
+
+    print("\n" + "=" * 68)
+    print("LOADING EXISTING COLD IPOPT BASELINE")
+    print("=" * 68)
+    print(f"Cold reference: {cold_file}")
+
+    cold_df_all = pd.read_csv(cold_file)
+
+    required_columns = {
+        "Instance_ID",
+        "Cold_IPOPT_Status",
+        "Cold_IPOPT_Success",
+        "Cold_IPOPT_Time_s",
+        "Cold_IPOPT_Cost",
+    }
+
+    missing = required_columns - set(cold_df_all.columns)
+
+    if missing:
+        raise ValueError(
+            f"Cold CSV missing columns: {sorted(missing)}"
+        )
+
+    cold_df_all["Instance_ID"] = (
+        cold_df_all["Instance_ID"].astype(int)
+    )
+
+    # --------------------------------------------------------
+    # Select EXACTLY the IDs belonging to this array chunk.
+    #
+    # expected_ids was already constructed from:
+    # start_idx:end_idx
+    # --------------------------------------------------------
+
+    cold_df = (
+        cold_df_all[
+            cold_df_all["Instance_ID"].isin(expected_ids)
+        ]
+        .copy()
+        .sort_values("Instance_ID")
+        .reset_index(drop=True)
+    )
+
+    cold_ids = cold_df[
+        "Instance_ID"
+    ].to_numpy(dtype=int)
+
+    # Strong consistency check
+    if not np.array_equal(cold_ids, expected_ids):
+        raise ValueError(
+            "\nCold-reference IDs do not match this chunk.\n"
+            f"Expected: {expected_ids.tolist()}\n"
+            f"Found:    {cold_ids.tolist()}"
+        )
+
+    # Robust success conversion
+    success_col = cold_df["Cold_IPOPT_Success"]
+
+    if success_col.dtype == bool:
+        cold_success = success_col.to_numpy()
+    else:
+        cold_success = (
+            success_col.astype(str)
+            .str.strip()
+            .str.lower()
+            .isin(["true", "1", "yes"])
+            .to_numpy()
+        )
+
+    cold_times_all = cold_df[
+        "Cold_IPOPT_Time_s"
+    ].to_numpy(dtype=float)
+
+    cold_costs_all = cold_df[
+        "Cold_IPOPT_Cost"
+    ].to_numpy(dtype=float)
+
+    valid = cold_success.copy()
+
+    n_requested = len(valid)
+    n_valid = int(valid.sum())
+    n_failed = int((~valid).sum())
+
+    print(
+        f"Existing cold reference success: "
+        f"{n_valid}/{n_requested} "
+        f"({100.0 * n_valid / n_requested:.2f}%)"
+    )
+
+    if n_failed > 0:
+        failed_ids = cold_ids[~valid]
+
+        print(
+            f"Cold IPOPT failed on {n_failed} instance(s)."
+        )
+        print(
+            f"Failed Instance_ID(s): {failed_ids.tolist()}"
+        )
+
+    if n_valid == 0:
+        raise RuntimeError(
+            "No successful cold-IPOPT reference "
+            "instances in this chunk."
+        )
+
+    # Apply same cold-feasible mask
+    Pd = Pd[valid]
+    Qd = Qd[valid]
+
+    original_ids = cold_ids[valid]
+    cold_times = cold_times_all[valid]
+    cold_costs = cold_costs_all[valid]
+
+    n_eval = n_valid
+
+    print(
+        f"Proceeding with {n_eval} common "
+        f"reference-feasible instances."
+    )
+###############################################################################################################
+    # cold_file = (
+    #     f"result/"
+    #     f"warmstart_cold_case"
+    #     f"{args.bus_number}_"
+    #     f"chunk{chunk_tag}.csv"
+    # )
 
     if not os.path.exists(cold_file):
 
