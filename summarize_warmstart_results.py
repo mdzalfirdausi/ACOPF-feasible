@@ -141,7 +141,7 @@ def find_ablation_raw_files(bus):
 
         300: os.path.join(
             RESULT_DIR,
-            "warmstart_case300_chunk",
+            "warmstart_ablation_case300_chunk",
         ),
     }
 
