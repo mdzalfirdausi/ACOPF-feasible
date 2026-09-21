@@ -55,13 +55,12 @@ mkdir -p ./logs
 mkdir -p ./result
 
 # ============================================================
-# Environment
-# Same environment setup as the working submit.sh
+# Python environment
+# Use the exact Python interpreter from the pytorch environment.
+# No conda activation is required.
 # ============================================================
 
-module load conda/25.08
-eval "$(conda shell.bash hook)"
-conda activate pytorch
+PYTHON="/home/g202210120/.conda/envs/pytorch/bin/python"
 
 echo "============================================================"
 echo "Array Job ID : $SLURM_ARRAY_JOB_ID"
@@ -72,12 +71,15 @@ echo "Case         : $CASE_NAME"
 echo "Bus          : $BUS_NUMBER"
 echo "============================================================"
 
-echo "Python:"
-which python
-python --version
+echo "Python executable:"
+echo "$PYTHON"
+"$PYTHON" --version
 
-echo "PyTorch check:"
-python -c "import torch; print('PyTorch version:', torch.__version__)"
+echo "Environment check:"
+"$PYTHON" -c "import torch, pandas, pyomo; \
+print('PyTorch:', torch.__version__); \
+print('Pandas:', pandas.__version__); \
+print('Pyomo:', pyomo.__version__)"
 
 # ============================================================
 # CPU threading
@@ -91,7 +93,7 @@ export NUMEXPR_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 # ============================================================
 # Array chunk
 #
-# 100 tasks x 10 instances = 1000 test instances
+# 100 tasks x 10 test instances = 1000 test instances
 # ============================================================
 
 CHUNK_SIZE=10
@@ -100,17 +102,17 @@ START_IDX=$((SLURM_ARRAY_TASK_ID * CHUNK_SIZE))
 END_IDX=$((START_IDX + CHUNK_SIZE))
 CHUNK_ID=$(printf "%03d" "$SLURM_ARRAY_TASK_ID")
 
-echo "Start index   : $START_IDX"
-echo "End index     : $END_IDX"
-echo "Chunk ID      : $CHUNK_ID"
-echo "Start time    : $(date)"
+echo "Start index : $START_IDX"
+echo "End index   : $END_IDX"
+echo "Chunk ID    : $CHUNK_ID"
+echo "Start time  : $(date)"
 
 # ============================================================
-# Build command
+# Build Python command
 # ============================================================
 
 CMD=(
-    python
+    "$PYTHON"
     evaluate_warmstart_qcqp_array.py
     --case_name "$CASE_NAME"
     --bus_number "$BUS_NUMBER"
