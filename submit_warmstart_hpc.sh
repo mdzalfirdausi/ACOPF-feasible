@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=6G
+#SBATCH --mem=16G
 #SBATCH --array=0-99%10
 #SBATCH --output=/home/g202210120/projects/ACOPF-feasible/logs/ws_%A_%a.out
 #SBATCH --error=/home/g202210120/projects/ACOPF-feasible/logs/ws_%A_%a.err
