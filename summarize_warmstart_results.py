@@ -89,23 +89,69 @@ def read_csvs(files):
 
 def find_main_raw_files(bus):
     """
-    Find main architecture raw warm-start files.
+    Find MAIN architecture raw warm-start files.
 
-    Prefer chunked files if they exist. Otherwise use the
-    non-chunked file.
+    Layout:
+      14/57:
+        result/warmstart_raw_caseXX.csv
+
+      162:
+        normally result/warmstart_raw_case162.csv
+        or chunk files if available
+
+      300:
+        result/warmstart_ablation_case300_chunk/
+            warmstart_raw_case300_chunk000.csv
+            ...
     """
 
-    chunk_pattern = os.path.join(
+    # ========================================================
+    # 1. Known chunk directories
+    # ========================================================
+
+    special_dirs = {
+        162: os.path.join(
+            RESULT_DIR,
+            "warmstart_ablation_case162_chunk",
+        ),
+        300: os.path.join(
+            RESULT_DIR,
+            "warmstart_ablation_case300_chunk",
+        ),
+    }
+
+    if bus in special_dirs:
+
+        pattern = os.path.join(
+            special_dirs[bus],
+            f"warmstart_raw_case{bus}_chunk*.csv",
+        )
+
+        files = sorted(glob.glob(pattern))
+
+        if files:
+            print(
+                f"Main chunk directory: {special_dirs[bus]}"
+            )
+            return files, True
+
+    # ========================================================
+    # 2. Chunk files directly inside result/
+    # ========================================================
+
+    pattern = os.path.join(
         RESULT_DIR,
         f"warmstart_raw_case{bus}_chunk*.csv",
     )
 
-    chunk_files = sorted(
-        glob.glob(chunk_pattern)
-    )
+    files = sorted(glob.glob(pattern))
 
-    if chunk_files:
-        return chunk_files, True
+    if files:
+        return files, True
+
+    # ========================================================
+    # 3. Non-chunked file
+    # ========================================================
 
     full_file = os.path.join(
         RESULT_DIR,
@@ -120,25 +166,28 @@ def find_main_raw_files(bus):
 
 def find_ablation_raw_files(bus):
     """
-    Find Ablated PINN raw warm-start files.
+    Find ABLATED PINN raw warm-start files.
 
-    Handles:
-      - 14/57: non-chunked files in result/
-      - 162: chunk files in result/warmstart_ablation_case162_chunk/
-      - 300: chunk files in result/warmstart_case300_chunk/
-      - fallback: chunk files directly in result/
+    Layout:
+      14/57:
+        result/warmstart_ablation_raw_caseXX.csv
+
+      162:
+        result/warmstart_ablation_case162_chunk/
+
+      300:
+        result/warmstart_ablation_case300_chunk/
     """
 
-    # --------------------------------------------------------
-    # Known chunk directories
-    # --------------------------------------------------------
+    # ========================================================
+    # 1. Known chunk directories
+    # ========================================================
 
     special_dirs = {
         162: os.path.join(
             RESULT_DIR,
             "warmstart_ablation_case162_chunk",
         ),
-
         300: os.path.join(
             RESULT_DIR,
             "warmstart_ablation_case300_chunk",
@@ -147,37 +196,36 @@ def find_ablation_raw_files(bus):
 
     if bus in special_dirs:
 
-        chunk_pattern = os.path.join(
+        pattern = os.path.join(
             special_dirs[bus],
             f"warmstart_ablation_raw_case{bus}_chunk*.csv",
         )
 
-        chunk_files = sorted(
-            glob.glob(chunk_pattern)
-        )
+        files = sorted(glob.glob(pattern))
 
-        if chunk_files:
-            return chunk_files, True
+        if files:
+            print(
+                f"Ablation chunk directory: {special_dirs[bus]}"
+            )
+            return files, True
 
-    # --------------------------------------------------------
-    # Fallback: chunks directly under result/
-    # --------------------------------------------------------
+    # ========================================================
+    # 2. Chunk files directly inside result/
+    # ========================================================
 
-    chunk_pattern = os.path.join(
+    pattern = os.path.join(
         RESULT_DIR,
         f"warmstart_ablation_raw_case{bus}_chunk*.csv",
     )
 
-    chunk_files = sorted(
-        glob.glob(chunk_pattern)
-    )
+    files = sorted(glob.glob(pattern))
 
-    if chunk_files:
-        return chunk_files, True
+    if files:
+        return files, True
 
-    # --------------------------------------------------------
-    # Non-chunked file, e.g. 14/57
-    # --------------------------------------------------------
+    # ========================================================
+    # 3. Non-chunked file
+    # ========================================================
 
     full_file = os.path.join(
         RESULT_DIR,
