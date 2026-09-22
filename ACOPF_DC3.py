@@ -319,7 +319,7 @@ if __name__ == "__main__":
         for Pd_batch, Qd_batch in train_loader:
             optimizer_dc3.zero_grad()
             
-            # Inner loop configuration (corr_steps=5) for deep constraint completion
+            # Inner feasibility-repair loop used to construct correction targets
             loss, diag = compute_dc3_qcqp_smax_loss(
                 model=model_dc3, 
                 Pd_batch=Pd_batch, 
@@ -345,7 +345,7 @@ if __name__ == "__main__":
             # 2. Checkpointing Logic: If this is the lowest validation loss we've seen, save it!
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                state_dict = model._orig_mod.state_dict() if hasattr(model, '_orig_mod') else model.state_dict()
+                state_dict = model_dc3._orig_mod.state_dict() if hasattr(model, '_orig_mod') else model_dc3.state_dict()
                 torch.save(state_dict, model_save_path)
                 saved_flag = " [*SAVED BEST*]"
             else:

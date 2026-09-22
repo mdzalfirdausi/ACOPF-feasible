@@ -17,14 +17,20 @@ from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 import seaborn as sns
 import argparse
+from scipy import stats
+from statsmodels.stats.multitest import multipletests
+from itertools import combinations
 
 # 1. IMPORT YOUR MODEL CLASSES HERE
 # (Ensure whatever class KKT uses is imported here if different from baselineQCQPMLP)
 from ACOPF_pinn_baseline import baselineQCQPMLP
 from ACOPF_pinn_rahul import RahulSinglePINN_Smax
 from ACOPF_Hard_KKT import HardKKT_QCQPMLP
+from ACOPF_ablation import AblatedQCQPMLP
 
 # --- CORE EVALUATION FUNCTION ---
 def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, problem: dict, device: torch.device):
@@ -37,6 +43,9 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
     all_max_eq, all_mean_eq = [], []
     all_max_ineq, all_mean_ineq = [], []
     all_mae_v, all_mae_pg, all_mae_qg = [], [], []
+
+    instance_rows = []
+    instance_counter = 0
     
     # Pre-extract bounds to avoid redundant batch expansions
     smax = problem["smax"].unsqueeze(0)
@@ -123,16 +132,15 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             vv_f = vr_f**2 + vi_f**2
             vv_t = vr_t**2 + vi_t**2
             
-            # Voltage angle differences (cos/sin representations)
-            vc = vr_f * vr_t + vi_f * vi_t
-            vs = vi_f * vr_t - vr_f * vi_t
+            # EXACT MATCH WITH TRAINING SCRIPTS
+            v_rt_cross = vr_f * vr_t + vi_f * vi_t
+            v_it_cross = vr_f * vi_t - vi_f * vr_t
             
-            # Branch Active & Reactive Power Flows
-            pf = g11 * vv_f + g12 * vc + b12 * vs
-            qf = -b11 * vv_f - b12 * vc + g12 * vs
-            
-            pt = g22 * vv_t + g21 * vc - b21 * vs
-            qt = -b22 * vv_t - b21 * vc - g21 * vs
+            # Branch Active & Reactive Power Flows (Corrected)
+            pf = g11 * vv_f - (g12 - b21) * v_rt_cross + (g21 + b12) * v_it_cross
+            qf = -b11 * vv_f + (b12 + g21) * v_rt_cross + (b21 - g12) * v_it_cross
+            pt = g22 * vv_t - (g12 + b21) * v_rt_cross + (g21 - b12) * v_it_cross
+            qt = -b22 * vv_t + (b12 - g21) * v_rt_cross - (b21 + g12) * v_it_cross
             
             # Nodal Power Injections (Starts with Shunt Consumption)
             vp = Gs.expand(B, -1) * vv
@@ -153,18 +161,20 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             h_q = (qg @ problem["C_g"].T) - Qd_batch - vq
             
             eq_violations = torch.cat([h_p.abs(), h_q.abs()], dim=1)
-            all_max_eq.append(eq_violations.max().item())
-            all_mean_eq.append(eq_violations.mean().item())
+            batch_max_eq = eq_violations.max(dim=1).values
+            batch_mean_eq = eq_violations.mean(dim=1)
 
-            # --- Inequality Constraints ---
+            # --- Inequality Constraints (Corrected Angle Bounds) ---
             g_sf = (pf**2 + qf**2) - smax.expand(B,-1)**2
             g_st = (pt**2 + qt**2) - smax.expand(B,-1)**2
             g_pg_max = pg - pmax.expand(B,-1)
             g_pg_min = pmin.expand(B,-1) - pg
             g_qg_max = qg - qmax.expand(B,-1)
             g_qg_min = qmin.expand(B,-1) - qg
-            g_ang_min = torch.tan(angmin.expand(B,-1)) * vc - vs
-            g_ang_max = vs - torch.tan(angmax.expand(B,-1)) * vc
+            
+            g_ang_min = torch.tan(angmin.expand(B,-1)) * v_rt_cross - v_it_cross
+            g_ang_max = v_it_cross - torch.tan(angmax.expand(B,-1)) * v_rt_cross
+            
             g_v_max = vv - (Vmax.expand(B,-1)**2)
             g_v_min = (Vmin.expand(B,-1)**2) - vv
 
@@ -175,8 +185,20 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
                 F.relu(g_v_max), F.relu(g_v_min)
             ], dim=1)
             
-            all_max_ineq.append(ineq_violations.max().item())
-            all_mean_ineq.append(ineq_violations.mean().item())
+            batch_max_ineq = ineq_violations.max(dim=1).values
+            batch_mean_ineq = ineq_violations.mean(dim=1)
+
+            for j in range(B):
+                instance_rows.append({
+                    "Instance_ID": instance_counter + j,
+                    "Optimality_Gap": obj_gap_pct[j].item(),
+                    "Max_Eq": batch_max_eq[j].item(),
+                    "Mean_Eq": batch_mean_eq[j].item(),
+                    "Max_Ineq": batch_max_ineq[j].item(),
+                    "Mean_Ineq": batch_mean_ineq[j].item(),
+                })
+
+            instance_counter += B
             
             # Absolute worst violation per sample for plotting
             batch_max_eq = eq_violations.max(dim=1).values
@@ -185,25 +207,25 @@ def evaluate_model(model: nn.Module, model_name: str, test_loader: DataLoader, p
             plot_data["max_violations"].extend(batch_max_viol.cpu().numpy())
 
     # Return raw numerical means for aggregation across seeds
+    df_inst = pd.DataFrame(instance_rows)
+
     raw_metrics = {
-        "Obj_Mean": np.mean(all_objs),
-        "Obj_Std": np.std(all_objs),
-        "Max_Eq": np.max(all_max_eq),
-        "Mean_Eq": np.mean(all_mean_eq),
-        "Max_Ineq": np.max(all_max_ineq),
-        "Mean_Ineq": np.mean(all_mean_ineq),
+        "Obj_Mean": df_inst["Optimality_Gap"].mean(),
+        "Max_Eq": df_inst["Max_Eq"].mean(),
+        "Mean_Eq": df_inst["Mean_Eq"].mean(),
+        "Max_Ineq": df_inst["Max_Ineq"].mean(),
+        "Mean_Ineq": df_inst["Mean_Ineq"].mean(),
         "MAE_v": np.mean(all_mae_v),
         "MAE_pg": np.mean(all_mae_pg),
         "MAE_qg": np.mean(all_mae_qg),
-        "Time_s": total_time / total_samples
+        "Time_s": total_time / total_samples,
     }
     
     plot_data["nn_costs"] = np.array(plot_data["nn_costs"])
     plot_data["ipopt_costs"] = np.array(plot_data["ipopt_costs"])
     plot_data["max_violations"] = np.array(plot_data["max_violations"])
     
-    return raw_metrics, plot_data
-
+    return raw_metrics, plot_data, pd.DataFrame(instance_rows)
 
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
@@ -312,6 +334,10 @@ if __name__ == "__main__":
         "Rahul's Model": {
             "class": lambda: RahulSinglePINN_Smax(nbus, ngen, nbranch).to(device),
             "paths": get_model_paths("rahul_model")
+        },
+        "Ablated PINN": {
+            "class": lambda: AblatedQCQPMLP(nbus, ngen, slack_imag_idx).to(device),
+            "paths": get_model_paths("ablation_model") 
         }
     }
 
@@ -319,6 +345,7 @@ if __name__ == "__main__":
     raw_results_list = []
     # Structure: arch_plot_artifacts[arch_name] = [plot_data_run1, plot_data_run2, ...]
     arch_plot_artifacts = {arch: [] for arch in architectures_config.keys()}
+    all_instance_results = []
 
     for arch_name, config in architectures_config.items():
         print(f"\n--- Evaluating Architecture: {arch_name} ---")
@@ -337,7 +364,10 @@ if __name__ == "__main__":
                 model.load_state_dict(new_state_dict)
                 model = model.to(device).float() 
                 
-                raw_metrics, plot_data = evaluate_model(model, arch_name, test_loader, problem, device)
+                raw_metrics, plot_data, df_instances = evaluate_model(model, arch_name, test_loader, problem, device)
+                df_instances["Architecture"] = arch_name
+                df_instances["Run"] = run_idx + 1
+                all_instance_results.append(df_instances)
                 
                 # Store identifying metadata
                 raw_metrics["Architecture"] = arch_name
@@ -349,7 +379,12 @@ if __name__ == "__main__":
                 
             except Exception as e:
                 print(f"  [Run {run_idx+1}] Failed due to error: {e}")
+    df_instances_all = pd.concat(all_instance_results, ignore_index=True)
 
+    df_instances_all.to_csv(
+        f"result/hierarchical_raw_case{bus_number}.csv",
+        index=False
+    )
     # =========================================================================
     # METRICS AGGREGATION & REPORTING
     # =========================================================================
@@ -360,13 +395,25 @@ if __name__ == "__main__":
         print("TABLE 1: INDIVIDUAL CHECKPOINT EVALUATIONS (ALL IDENTIFIED RUNS)")
         print("=========================================================================================")
         df_display_raw = df_raw.copy()
-        df_display_raw["Obj. Error (%)"] = df_display_raw.apply(lambda r: f"{r['Obj_Mean']:.2f} ({r['Obj_Std']:.2f})", axis=1)
+        df_display_raw["Obj. Error (%)"] = df_display_raw.apply(lambda r: f"{r['Obj_Mean']:.2f}", axis=1)
         df_display_raw = df_display_raw[["Architecture", "Run", "Obj. Error (%)", "Max_Eq", "Mean_Eq", "Max_Ineq", "Mean_Ineq", "MAE_v", "MAE_pg", "MAE_qg", "Time_s"]]
         print(df_display_raw.to_string(index=False))
-
+        # Save the DataFrame directly to an Excel file named after the bus_number
+        df_display_raw.to_excel(f"{bus_number}.xlsx", index=False)
+        
         print("\n=========================================================================================")
         print("TABLE 2: PAPER-READY COMPARISON TABLE (AGGREGATED MEAN ± STD ACROSS SEEDS)")
         print("=========================================================================================")
+
+        def ci95(values):
+            values = np.asarray(values, dtype=float)
+            n = len(values)
+            mean = np.mean(values)
+            sd = np.std(values, ddof=1)
+            se = sd / np.sqrt(n)
+            tcrit = stats.t.ppf(0.975, df=n - 1)
+
+            return mean - tcrit * se, mean + tcrit * se
         
         summary_rows = []
         for arch_name, group in df_raw.groupby("Architecture", sort=False):
@@ -375,15 +422,37 @@ if __name__ == "__main__":
             std_gap = group['Obj_Mean'].std()
             
             # Format explicitly with sign (+/-) so reviewers see cost undercutting
-            gap_str = f"{mean_gap:+.4f} ± {std_gap:.4f}"
+            gap_lo, gap_hi = ci95(group["Obj_Mean"])
+            maxeq_lo, maxeq_hi = ci95(group["Max_Eq"])
+            meaneq_lo, meaneq_hi = ci95(group["Mean_Eq"])
+            maxineq_lo, maxineq_hi = ci95(group["Max_Ineq"])
+            meanineq_lo, meanineq_hi = ci95(group["Mean_Ineq"])
             
             summary_rows.append({
                 "Architecture": f"{arch_name} (n={n_seeds})",
-                "Optimality Gap (%)": gap_str,  
-                "Max Eq. (p.u.)": f"{group['Max_Eq'].mean():.4f} ± {group['Max_Eq'].std():.4f}",
-                "Mean Eq. (p.u.)": f"{group['Mean_Eq'].mean():.4f} ± {group['Mean_Eq'].std():.4f}",
-                "Max Ineq. (p.u.)": f"{group['Max_Ineq'].mean():.4f} ± {group['Max_Ineq'].std():.4f}",
-                "Mean Ineq. (p.u.)": f"{group['Mean_Ineq'].mean():.4f} ± {group['Mean_Ineq'].std():.4f}",
+                "Optimality Gap (%)": (
+                    f"{mean_gap:+.2f} ± {std_gap:.2f} "
+                    f"[{gap_lo:.2f}, {gap_hi:.2f}]"
+                ),
+                "Max Eq. (p.u.)": (
+                        f"{group['Max_Eq'].mean():.2f} ± {group['Max_Eq'].std():.2f} "
+                        f"[{maxeq_lo:.2f}, {maxeq_hi:.2f}]"
+                    ),
+                "Mean Eq. (p.u.)": (
+                        f"{group['Mean_Eq'].mean():.2f} ± {group['Mean_Eq'].std():.2f} "
+                        f"[{meaneq_lo:.2f}, {meaneq_hi:.2f}]"
+                    ),
+                #f"{group['Mean_Eq'].mean():.2f} ± {group['Mean_Eq'].std():.2f}",
+                "Max Ineq. (p.u.)": (
+                        f"{group['Max_Ineq'].mean():.2f} ± {group['Max_Ineq'].std():.2f} "
+                        f"[{maxineq_lo:.2f}, {maxineq_hi:.2f}]"
+                    ),
+                #f"{group['Max_Ineq'].mean():.2f} ± {group['Max_Ineq'].std():.2f}",
+                "Mean Ineq. (p.u.)": (
+                        f"{group['Mean_Ineq'].mean():.2f} ± {group['Mean_Ineq'].std():.2f} "
+                        f"[{meanineq_lo:.2f}, {meanineq_hi:.2f}]"
+                    ),
+                #f"{group['Mean_Ineq'].mean():.4f} ± {group['Mean_Ineq'].std():.4f}",
                 "MAE v": f"{group['MAE_v'].mean():.5f}",
                 "MAE pg": f"{group['MAE_pg'].mean():.4f}",
                 "MAE qg": f"{group['MAE_qg'].mean():.4f}",
@@ -402,6 +471,169 @@ if __name__ == "__main__":
     else:
         print("WARNING: No models were successfully evaluated.")
         sys.exit(0)
+
+    # =========================================================================
+    # RUN-LEVEL STATISTICAL ANALYSIS
+    # =========================================================================
+
+    metrics = [
+        "Optimality_Gap",
+        "Max_Eq",
+        "Mean_Eq",
+        "Max_Ineq",
+        "Mean_Ineq"
+    ]
+
+    # Collapse the 1,000 test instances within each trained model.
+    # Result: ONE value per architecture per independent training run.
+    df_run_level = (
+        df_instances_all
+        .groupby(["Architecture", "Run"], as_index=False)[metrics]
+        .mean()
+    )
+
+    print("\nRUN-LEVEL DATA USED FOR STATISTICAL TESTING")
+    print(df_run_level.to_string(index=False))
+
+    df_run_level.to_csv(
+        f"result/run_level_case{bus_number}.csv",
+        index=False
+    )
+
+    pairwise_results = []
+
+    architectures = df_run_level["Architecture"].unique()
+
+    for metric in metrics:
+        for arch_a, arch_b in combinations(architectures, 2):
+
+            x = df_run_level.loc[
+                df_run_level["Architecture"] == arch_a, metric
+            ].values
+
+            y = df_run_level.loc[
+                df_run_level["Architecture"] == arch_b, metric
+            ].values
+
+            result = stats.permutation_test(
+                (x, y),
+                statistic=lambda a, b: np.mean(a) - np.mean(b),
+                permutation_type="independent",
+                alternative="two-sided",
+                n_resamples=10000,
+                random_state=42
+            )
+
+            pairwise_results.append({
+                "Metric": metric,
+                "Architecture_A": arch_a,
+                "Architecture_B": arch_b,
+                "Mean_A": np.mean(x),
+                "Mean_B": np.mean(y),
+                "Difference": np.mean(x) - np.mean(y),
+                "p_value": result.pvalue
+            })
+
+    df_pairwise = pd.DataFrame(pairwise_results)
+
+    # Multiple-comparison correction
+    df_pairwise["p_adjusted"] = np.nan
+    df_pairwise["Significant"] = False
+
+    for metric in metrics:
+        mask_metric = df_pairwise["Metric"] == metric
+
+        reject, p_adjusted, _, _ = multipletests(
+            df_pairwise.loc[mask_metric, "p_value"],
+            alpha=0.05,
+            method="holm"
+        )
+
+        df_pairwise.loc[mask_metric, "p_adjusted"] = p_adjusted
+        df_pairwise.loc[mask_metric, "Significant"] = reject
+
+    df_pairwise.to_csv(
+        f"result/pairwise_runlevel_case{bus_number}.csv",
+        index=False
+    )
+
+    print("\nRUN-LEVEL PAIRWISE STATISTICAL TESTS")
+    print(df_pairwise.to_string(index=False))
+
+    # =========================================================================
+    # HIERARCHICAL BOOTSTRAP
+    # =========================================================================
+
+    def hierarchical_bootstrap(df, metric, n_boot=10000, seed=42):
+        """
+        Bootstrap hierarchy:
+            training runs -> test instances within each sampled run
+        """
+        rng = np.random.default_rng(seed)
+
+        runs = df["Run"].unique()
+        boot_stats = np.empty(n_boot)
+
+        for b in range(n_boot):
+
+            # Level 1: resample the 5 training runs
+            sampled_runs = rng.choice(runs, size=len(runs), replace=True)
+
+            run_means = []
+
+            for run in sampled_runs:
+                values = df.loc[df["Run"] == run, metric].to_numpy()
+
+                # Level 2: resample test instances within this run
+                sampled_values = rng.choice(
+                    values,
+                    size=len(values),
+                    replace=True
+                )
+
+                run_means.append(sampled_values.mean())
+
+            boot_stats[b] = np.mean(run_means)
+
+        return (
+            np.mean(boot_stats),
+            np.percentile(boot_stats, 2.5),
+            np.percentile(boot_stats, 97.5)
+        )
+
+    bootstrap_rows = []
+    for arch_name in df_instances_all["Architecture"].unique():
+
+        df_arch = df_instances_all[
+            df_instances_all["Architecture"] == arch_name
+        ]
+
+        for metric in metrics:
+
+            boot_mean, ci_low, ci_high = hierarchical_bootstrap(
+                df_arch,
+                metric,
+                n_boot=1000,
+                seed=42
+            )
+
+            bootstrap_rows.append({
+                "Architecture": arch_name,
+                "Metric": metric,
+                "Bootstrap_Mean": boot_mean,
+                "CI95_Low": ci_low,
+                "CI95_High": ci_high
+            })
+
+    df_bootstrap = pd.DataFrame(bootstrap_rows)
+
+    df_bootstrap.to_csv(
+        f"result/hierarchical_bootstrap_case{bus_number}.csv",
+        index=False
+    )
+
+    print("\nHIERARCHICAL BOOTSTRAP 95% CONFIDENCE INTERVALS")
+    print(df_bootstrap.to_string(index=False))
 
     # =========================================================================
     # PLOTTING SECTION
@@ -457,39 +689,120 @@ if __name__ == "__main__":
     plot_rows = []
     for arch_name, runs_data in arch_plot_artifacts.items():
         if runs_data:
-            combined_viols = np.concatenate([r["max_violations"] for r in runs_data])
-            viols_safe = np.clip(combined_viols, a_min=1e-10, a_max=None)
-            
-            log_viols = np.log10(viols_safe)
-            arch_label = f"{arch_name}"
-            
-            for lv in log_viols:
-                plot_rows.append({
-                    "Architecture": arch_label,
-                    "Log_Max_Violation": lv
-                })
+            # Loop through each run separately to keep track of the Run ID
+            for run_idx, run_artifact in enumerate(runs_data):
+                viols = run_artifact["max_violations"]
+                viols_safe = np.clip(viols, a_min=1e-10, a_max=None)
+                log_viols = np.log10(viols_safe)
+                
+                # Enumerate to keep track of the exact test Instance ID (0 to 999)
+                for instance_id, (raw_val, log_val) in enumerate(zip(viols_safe, log_viols)):
+                    plot_rows.append({
+                        "Architecture": arch_name,
+                        "Run": f"Run {run_idx + 1}",
+                        "Instance_ID": instance_id,
+                        "Raw_Max_Violation": raw_val,
+                        "Log_Max_Violation": log_val
+                    })
 
     if plot_rows:
         df_plot = pd.DataFrame(plot_rows)
         
+        os.makedirs("result", exist_ok=True)
+        
+        # 1. Save the full raw data (25,000 rows)
+        data_path_raw = f"result/violin_plot_data_case{bus_number}.csv"
+        df_plot.to_csv(data_path_raw, index=False)
+        print(f"Raw violin plot data successfully saved to: {data_path_raw}")
+        
+        # 2. NEW: Aggregate across the 5 runs (averaging per Instance_ID for each Architecture)
+        # This collapses 25,000 rows into exactly 5,000 rows
+        df_agg = df_plot.groupby(['Architecture', 'Run'], as_index=False)[['Raw_Max_Violation', 'Log_Max_Violation']].mean()
+        
+        # Save the aggregated data
+        data_path_agg = f"result/violin_plot_data_case{bus_number}_aggregated.csv"
+        df_agg.to_csv(data_path_agg, index=False)
+        print(f"Aggregated violin plot data successfully saved to: {data_path_agg}")
+        
+        # PLOTTING: Using the pooled raw data (df_plot) to accurately show the full distribution variance
         plt.figure(figsize=(12, 6.5))
         
         palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
         
+        # ax = sns.violinplot(
+        #     data=df_plot,
+        #     x="Architecture",
+        #     y="Log_Max_Violation",
+        #     density_norm="count",  
+        #     inner="box",           
+        #     cut=0,                 
+        #     palette=palette[:df_plot["Architecture"].nunique()],
+        #     linewidth=1.2,
+        #     alpha=0.75
+        # )
+
+        architecture_order = df_plot["Architecture"].drop_duplicates().tolist()
+        colors = sns.color_palette("Set2", n_colors=len(architecture_order))
+        palette_map = dict(zip(architecture_order, colors))
+
         ax = sns.violinplot(
             data=df_plot,
             x="Architecture",
             y="Log_Max_Violation",
-            density_norm="count",  
-            inner="box",           
-            cut=0,                 
-            palette=palette[:df_plot["Architecture"].nunique()],
-            linewidth=1.2,
-            alpha=0.75
+            hue="Architecture",
+            order=architecture_order,
+            hue_order=architecture_order,
+            palette=palette_map,
+            inner="quartile",
+            density_norm="area",
+            cut=0,
+            legend=False
+        )
+
+        ax.axhline(
+            y=-4.0,
+            color="red",
+            linestyle="--",
+            linewidth=2
+        )
+
+        # Colored violin legend
+        legend_handles = [
+            Patch(
+                facecolor=palette_map[architecture],
+                edgecolor="black",
+                label=architecture
+            )
+            for architecture in architecture_order
+        ]
+
+        # Feasibility-tolerance legend entry
+        legend_handles.append(
+            Line2D(
+                [0], [0],
+                color="red",
+                linestyle="--",
+                linewidth=2,
+                label=r"Feasibility tolerance ($10^{-4}$ p.u.)"
+            )
+        )
+
+        ax.legend(
+            handles=legend_handles,
+            title="Architecture",
+            fontsize=9,
+            title_fontsize=10,
+            loc="lower right",
+            bbox_to_anchor=(0.985, 0.085),
+            borderaxespad=0,
+            frameon=True,
+            framealpha=0.95,
+            edgecolor="gray"
         )
         
         plt.xticks(fontsize=10.5, fontweight='bold')
         
+        # Add your threshold line
         plt.axhline(y=-4.0, color='r', linestyle='--', linewidth=2, label='Solver Tolerance ($10^{-4}$)')
         
         y_min = int(np.floor(df_plot["Log_Max_Violation"].min()))
@@ -497,11 +810,32 @@ if __name__ == "__main__":
         tick_locs = np.arange(y_min, y_max + 1, 1)
         plt.yticks(tick_locs, [f"$10^{{{int(loc)}}}$" for loc in tick_locs], fontsize=11)
         
-        plt.title(f"Constraint Violation Distribution Across {len(mask)} Test Instances (Case {bus_number})", fontsize=14, fontweight='bold')
+        plt.title(
+            f"Maximum Constraint Violations: {bus_number}-Bus Case\n"
+            f"Pooled across 5 runs ({len(mask):,} test instances per run)",
+            fontsize=14,
+            fontweight="bold"
+        )
         plt.xlabel("", fontsize=12) 
         plt.ylabel("Max Constraint Violation (p.u.)", fontsize=12)
         plt.grid(True, axis='y', linestyle='--', alpha=0.7)
-        plt.legend(fontsize=11, loc='upper right')
+        
+        # ---------------------------------------------------------
+        # UPDATED LEGEND CODE
+        # ---------------------------------------------------------
+        # 1. Grab all handles (the violin colors + the red line)
+        handles, labels = ax.get_legend_handles_labels()
+        
+        # # 2. Re-draw the legend combined
+        # plt.legend(
+        #     handles=handles, 
+        #     labels=labels, 
+        #     fontsize=11, 
+        #     loc='upper right',
+        #     title="Legend",          # Optional: add a title to the legend box
+        #     title_fontsize=12
+        # )
+        # ---------------------------------------------------------
         
         plt.tight_layout()
         plt.savefig(f"plot/violation_violinplots_pooled_case{bus_number}.pdf", format="pdf", bbox_inches="tight")
