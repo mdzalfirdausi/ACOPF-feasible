@@ -3,6 +3,8 @@
 ACOPF Unsupervised Baseline PINN Training Script
 Optimized for Intel i7-1255U / CUDA Acceleration
 """
+import random
+import numpy as np
 import argparse
 from datetime import datetime
 import time
@@ -253,7 +255,25 @@ if __name__ == "__main__":
             "objective",
         ],
     )
+    parser.add_argument(
+            "--seed",
+            type=int,
+            required=True,
+            help="Random seed for reproducible independent training run",
+    )
     args = parser.parse_args()
+    import random
+    import numpy as np
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+
+    print(f"Random seed     : {args.seed}")
 
     # 0. Hardware Device Discovery & Optimization
     if torch.cuda.is_available():
@@ -399,6 +419,7 @@ if __name__ == "__main__":
         f"{args.weights}_"
         f"{case_name}_"
         f"{epochs}epochs_"
+        f"seed{args.seed}_"
         f"{timestamp}.pth"
     )
     print("=" * 70)
