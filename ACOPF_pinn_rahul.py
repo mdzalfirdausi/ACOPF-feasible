@@ -338,7 +338,7 @@ if __name__ == "__main__":
                 problem[key] = value.to(device=device)
 
     # 3. Setup Dataset Pipeline
-    batch_size = 1024 
+    batch_size = 1024
     train_dataset = TensorDataset(train_Pd, train_Qd)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
