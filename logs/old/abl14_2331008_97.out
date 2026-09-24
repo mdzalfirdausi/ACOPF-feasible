@@ -1,0 +1,130 @@
+============================================================
+Array Job ID : 2331008
+Task ID      : 97
+Node         : node0017
+Case         : pglib_opf_case300_ieee
+Bus          : 300
+============================================================
+Python 3.11.15
+PyTorch: 2.8.0+cu129
+Pandas: 3.0.3
+Pyomo: 6.10.1
+Start index : 970
+End index   : 980
+Chunk ID    : 097
+Command:
+/home/g202210120/.conda/envs/pytorch/bin/python evaluate_warmstart_ablation_array.py --case_name pglib_opf_case300_ieee --bus_number 300 --start_idx 970 --end_idx 980 --chunk_id 097 
+Loading CURRENT dataset: ./dataset/pglib_opf_case300_ieee_10000.pt
+QCQP matrices reconstructed in memory.
+Selected test chunk [970, 980) with 10 instance(s); chunk=097
+
+============================================================
+LOADING EXISTING COLD IPOPT BASELINE
+============================================================
+Cold reference: result/warmstart_cold_case300_chunk097.csv
+Existing cold reference success: 10/10 (100.00%)
+Proceeding with 10 common reference-feasible instances.
+
+Building ORIGINAL matrix-QCQP Pyomo model...
+Building Pyomo model (this happens only once)...
+Model built successfully.
+Model built successfully.
+
+============================================================
+ABLATION CHECKPOINTS
+============================================================
+Pattern: model/300/*ablation_model*.pth
+Found 5 checkpoint(s).
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_135416.pth
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_140403.pth
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_141210.pth
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_141939.pth
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_142942.pth
+
+================ Ablated PINN ================
+
+Run 1: best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_135416.pth
+NN inference: 0.000225256 s/instance
+  [1/10] success=True status=optimal time=1.588071s gap=+0.0000%
+  [2/10] success=True status=optimal time=1.692620s gap=+0.0000%
+  [3/10] success=True status=optimal time=1.602719s gap=+0.0000%
+  [4/10] success=True status=optimal time=1.659877s gap=-0.0000%
+  [5/10] success=True status=optimal time=1.562426s gap=+0.0000%
+  [6/10] success=True status=optimal time=1.568054s gap=-0.0000%
+  [7/10] success=True status=optimal time=1.568736s gap=+0.0000%
+  [8/10] success=True status=optimal time=1.502527s gap=+0.0000%
+  [9/10] success=True status=optimal time=1.503533s gap=+0.0000%
+  [10/10] success=True status=optimal time=1.464550s gap=-0.0000%
+
+Run 2: best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_140403.pth
+NN inference: 0.000137851 s/instance
+  [1/10] success=True status=optimal time=1.498001s gap=-0.0000%
+  [2/10] success=True status=optimal time=1.679707s gap=+0.0000%
+  [3/10] success=True status=optimal time=1.499750s gap=+0.0000%
+  [4/10] success=True status=optimal time=1.588686s gap=+0.0000%
+  [5/10] success=True status=optimal time=1.561285s gap=-0.0000%
+  [6/10] success=True status=optimal time=1.611265s gap=-0.0000%
+  [7/10] success=True status=optimal time=1.719588s gap=-0.0000%
+  [8/10] success=True status=optimal time=1.475225s gap=+0.0000%
+  [9/10] success=True status=optimal time=1.510098s gap=+0.0000%
+  [10/10] success=True status=optimal time=1.502524s gap=-0.0000%
+
+Run 3: best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_141210.pth
+NN inference: 0.000568452 s/instance
+  [1/10] success=True status=optimal time=1.676594s gap=+0.0000%
+  [2/10] success=True status=optimal time=1.720715s gap=+0.0000%
+  [3/10] success=True status=optimal time=1.560327s gap=+0.0000%
+  [4/10] success=True status=optimal time=1.679306s gap=-0.0000%
+  [5/10] success=True status=optimal time=1.658988s gap=+0.0000%
+  [6/10] success=True status=optimal time=1.581621s gap=-0.0000%
+  [7/10] success=True status=optimal time=1.609430s gap=+0.0000%
+  [8/10] success=True status=optimal time=1.563103s gap=-0.0000%
+  [9/10] success=True status=optimal time=1.535806s gap=+0.0000%
+  [10/10] success=True status=optimal time=1.585839s gap=-0.0000%
+
+Run 4: best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_141939.pth
+NN inference: 0.000172304 s/instance
+  [1/10] success=True status=optimal time=1.659712s gap=+0.0000%
+  [2/10] success=True status=optimal time=1.863103s gap=+0.0000%
+  [3/10] success=True status=optimal time=1.697538s gap=+0.0000%
+  [4/10] success=True status=optimal time=1.722690s gap=-0.0000%
+  [5/10] success=True status=optimal time=1.431144s gap=-0.0000%
+  [6/10] success=True status=optimal time=1.364374s gap=-0.0000%
+  [7/10] success=True status=optimal time=1.488803s gap=-0.0000%
+  [8/10] success=True status=optimal time=1.337130s gap=+0.0000%
+  [9/10] success=True status=optimal time=1.442497s gap=+0.0000%
+  [10/10] success=True status=optimal time=1.363797s gap=-0.0000%
+
+Run 5: best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_142942.pth
+NN inference: 0.000151319 s/instance
+  [1/10] success=True status=optimal time=1.407943s gap=+0.0000%
+  [2/10] success=True status=optimal time=1.491645s gap=-0.0000%
+  [3/10] success=True status=optimal time=1.312644s gap=+0.0000%
+  [4/10] success=True status=optimal time=1.407811s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.654890s gap=+0.0000%
+  [6/10] success=True status=optimal time=0.636751s gap=-0.0000%
+  [7/10] success=True status=optimal time=1.189117s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.868316s gap=+0.0000%
+  [9/10] success=True status=optimal time=1.338835s gap=+0.0000%
+  [10/10] success=True status=optimal time=1.367483s gap=-0.0000%
+
+============================================================
+ABLATION WARM-START SUMMARY
+============================================================
+Architecture  Run  N  Success_Rate  NN_Time_s  IPOPT_Time_s  Total_Online_Time_s  Cold_IPOPT_Time_s  Speedup  Feasible_Obj_Gap_pct
+Ablated PINN    1 10           1.0   0.000225      1.571311             1.571537            0.85531 0.544212          6.973907e-13
+Ablated PINN    2 10           1.0   0.000138      1.564613             1.564751            0.85531 0.546682         -1.712524e-12
+Ablated PINN    3 10           1.0   0.000568      1.617173             1.617741            0.85531 0.528887          7.850980e-13
+Ablated PINN    4 10           1.0   0.000172      1.537079             1.537251            0.85531 0.561939         -2.275566e-12
+Ablated PINN    5 10           1.0   0.000151      1.167543             1.167695            0.85531 0.809968         -1.661705e-12
+
+Saved:
+   result/warmstart_ablation_raw_case300_chunk097.csv
+   result/warmstart_ablation_runlevel_case300_chunk097.csv
+   result/warmstart_ablation_summary_case300_chunk097.csv
+
+Done.
+============================================================
+Finished : Mon Sep 21 13:23:09 +03 2026
+Exit code: 0
+============================================================

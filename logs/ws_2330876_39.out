@@ -1,0 +1,330 @@
+============================================================
+Array Job ID : 2330876
+Task ID      : 39
+Node         : node0017
+Working dir  : /home/g202210120/projects/ACOPF-feasible
+Case         : pglib_opf_case300_ieee
+Bus          : 300
+============================================================
+Python executable:
+/home/g202210120/.conda/envs/pytorch/bin/python
+Python 3.11.15
+Environment check:
+PyTorch: 2.8.0+cu129
+Pandas: 3.0.3
+Pyomo: 6.10.1
+Start index : 390
+End index   : 400
+Chunk ID    : 039
+Start time  : Mon Sep 21 11:06:55 +03 2026
+Command:
+/home/g202210120/.conda/envs/pytorch/bin/python evaluate_warmstart_qcqp_array.py --case_name pglib_opf_case300_ieee --bus_number 300 --start_idx 390 --end_idx 400 --chunk_id 039 
+Loading CURRENT dataset: ./dataset/pglib_opf_case300_ieee_10000.pt
+QCQP matrices reconstructed in memory.
+Selected test chunk [390, 400) with 10 instance(s); chunk=039
+
+Building ORIGINAL matrix-QCQP Pyomo model...
+Building Pyomo model (this happens only once)...
+Model built successfully.
+
+====================================================================
+COLD IPOPT BASELINE: current formulation, current machine
+====================================================================
+  [   1/10] success=True status=optimal time=0.758786s cost=557666.179607
+  [  10/10] success=True status=optimal time=0.748151s cost=565122.649945
+
+Cold IPOPT reference success: 10/10 (100.00%)
+Cold baseline saved -> result/warmstart_cold_case300_chunk039.csv
+Proceeding with 10 common reference-feasible instances for every architecture and run.
+
+
+================ PINN Baseline ================
+Run 1: best_pinn_model_pglib_opf_case300_ieee_10000epochs_20260723_045017.pth
+  [1/10] success=True status=optimal time=0.698730s gap=-0.0000%
+  [2/10] success=True status=optimal time=0.718161s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.742823s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.667434s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.665599s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.625072s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.676504s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.928973s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.856450s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.742536s gap=+0.0000%
+Run 2: best_pinn_model_pglib_opf_case300_ieee_10000epochs_20260723_045657.pth
+  [1/10] success=True status=optimal time=0.844510s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.829082s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.968865s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.833921s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.783728s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.692095s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.833219s gap=-0.0000%
+  [8/10] success=True status=optimal time=1.024273s gap=-0.0000%
+  [9/10] success=True status=optimal time=1.131574s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.838878s gap=+0.0000%
+Run 3: best_pinn_model_pglib_opf_case300_ieee_10000epochs_20260723_050339.pth
+  [1/10] success=True status=optimal time=1.060288s gap=-0.0000%
+  [2/10] success=True status=optimal time=1.009468s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.854253s gap=+0.0000%
+  [4/10] success=True status=optimal time=0.826205s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.868549s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.852236s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.705707s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.912438s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.775102s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.762767s gap=+0.0000%
+Run 4: best_pinn_model_pglib_opf_case300_ieee_10000epochs_20260723_051021.pth
+  [1/10] success=True status=optimal time=0.781316s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.788990s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.861059s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.789286s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.786212s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.783784s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.751094s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.868309s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.875336s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.848466s gap=-0.0000%
+Run 5: best_pinn_model_pglib_opf_case300_ieee_10000epochs_20260723_051658.pth
+  [1/10] success=True status=optimal time=0.786875s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.820269s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.863842s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.778594s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.798373s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.839360s gap=-0.0000%
+  [7/10] success=True status=optimal time=0.780490s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.949549s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.873600s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.834563s gap=+0.0000%
+
+================ DC3 ================
+Run 1: best_dc3_model_pglib_opf_case300_ieee_10000epochs_20260723_062300.pth
+  [1/10] success=True status=optimal time=0.807861s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.866729s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.920328s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.876149s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.940742s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.922816s gap=-0.0000%
+  [7/10] success=True status=optimal time=0.951188s gap=-0.0000%
+  [8/10] success=True status=optimal time=1.030169s gap=-0.0000%
+  [9/10] success=True status=optimal time=1.020913s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.961238s gap=+0.0000%
+Run 2: best_dc3_model_pglib_opf_case300_ieee_10000epochs_20260723_063933.pth
+  [1/10] success=True status=optimal time=0.914611s gap=-0.0000%
+  [2/10] success=True status=optimal time=0.913889s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.988181s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.878075s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.890966s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.886035s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.863334s gap=+0.0000%
+  [8/10] success=True status=optimal time=1.063344s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.968413s gap=+0.0000%
+  [10/10] success=True status=optimal time=0.965902s gap=+0.0000%
+Run 3: best_dc3_model_pglib_opf_case300_ieee_10000epochs_20260723_065605.pth
+  [1/10] success=True status=optimal time=0.918338s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.877470s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.946428s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.866524s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.897158s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.890061s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.838767s gap=-0.0000%
+  [8/10] success=True status=optimal time=1.048366s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.888249s gap=+0.0000%
+  [10/10] success=True status=optimal time=0.950180s gap=+0.0000%
+Run 4: best_dc3_model_pglib_opf_case300_ieee_10000epochs_20260723_071229.pth
+  [1/10] success=True status=optimal time=0.876437s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.803074s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.909666s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.838867s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.844394s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.841990s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.801735s gap=+0.0000%
+  [8/10] success=True status=optimal time=0.951693s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.884907s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.894423s gap=+0.0000%
+Run 5: best_dc3_model_pglib_opf_case300_ieee_10000epochs_20260723_072901.pth
+  [1/10] success=True status=optimal time=0.831889s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.883500s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.914181s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.735788s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.904999s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.863297s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.905519s gap=-0.0000%
+  [8/10] success=True status=optimal time=1.095232s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.880532s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.856301s gap=+0.0000%
+
+================ FSNet ================
+Run 1: best_fsnet_model_pglib_opf_case300_ieee_10000epochs_20260724_003124.pth
+  [1/10] success=True status=optimal time=0.848438s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.826608s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.847158s gap=+0.0000%
+  [4/10] success=True status=optimal time=0.840971s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.859567s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.871498s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.820848s gap=-0.0000%
+  [8/10] success=True status=optimal time=1.005225s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.971209s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.951186s gap=+0.0000%
+Run 2: best_fsnet_model_pglib_opf_case300_ieee_10000epochs_20260724_010306.pth
+  [1/10] success=True status=optimal time=0.937410s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.877924s gap=-0.0000%
+  [3/10] success=True status=optimal time=0.941026s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.816910s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.949619s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.911981s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.892776s gap=+0.0000%
+  [8/10] success=True status=optimal time=0.979344s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.983485s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.918550s gap=+0.0000%
+Run 3: best_fsnet_model_pglib_opf_case300_ieee_10000epochs_20260724_013347.pth
+  [1/10] success=True status=optimal time=0.856688s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.850625s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.903926s gap=+0.0000%
+  [4/10] success=True status=optimal time=0.843658s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.860821s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.872406s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.800463s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.884153s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.874304s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.852981s gap=+0.0000%
+Run 4: best_fsnet_model_pglib_opf_case300_ieee_10000epochs_20260724_020357.pth
+  [1/10] success=True status=optimal time=0.799393s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.727237s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.824301s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.628826s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.740265s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.800598s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.779755s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.894056s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.946993s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.924570s gap=+0.0000%
+Run 5: best_fsnet_model_pglib_opf_case300_ieee_10000epochs_20260724_023440.pth
+  [1/10] success=True status=optimal time=0.824898s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.825950s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.842073s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.775044s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.809198s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.879736s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.803753s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.888878s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.877555s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.838164s gap=+0.0000%
+
+================ KKT ================
+Run 1: best_hardkkt_pglib_opf_case300_ieee_10000epochs_20260723_190025.pth
+  [1/10] success=True status=optimal time=0.755708s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.736586s gap=-0.0000%
+  [3/10] success=True status=optimal time=0.919077s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.818401s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.834266s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.840388s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.838245s gap=+0.0000%
+  [8/10] success=True status=optimal time=0.956997s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.943470s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.886185s gap=+0.0000%
+Run 2: best_hardkkt_pglib_opf_case300_ieee_10000epochs_20260723_193621.pth
+  [1/10] success=True status=optimal time=0.832416s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.788871s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.771690s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.842550s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.813584s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.882876s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.838298s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.936087s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.821722s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.763910s gap=-0.0000%
+Run 3: best_hardkkt_pglib_opf_case300_ieee_10000epochs_20260723_201123.pth
+  [1/10] success=True status=optimal time=0.710578s gap=-0.0000%
+  [2/10] success=True status=optimal time=0.765304s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.896586s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.830364s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.863396s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.850504s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.793457s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.873035s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.903015s gap=+0.0000%
+  [10/10] success=True status=optimal time=0.950611s gap=+0.0000%
+Run 4: best_hardkkt_pglib_opf_case300_ieee_10000epochs_20260723_204704.pth
+  [1/10] success=True status=optimal time=0.798702s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.800058s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.884508s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.846049s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.837680s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.826563s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.848738s gap=+0.0000%
+  [8/10] success=True status=optimal time=0.926315s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.869362s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.862068s gap=+0.0000%
+Run 5: best_hardkkt_pglib_opf_case300_ieee_10000epochs_20260723_212158.pth
+  [1/10] success=True status=optimal time=0.789112s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.788250s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.910700s gap=+0.0000%
+  [4/10] success=True status=optimal time=0.813375s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.859556s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.797732s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.786036s gap=+0.0000%
+  [8/10] success=True status=optimal time=0.870040s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.824431s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.869791s gap=+0.0000%
+
+================ Rahul's Model ================
+Run 1: best_rahul_model_pglib_opf_case300_ieee_10000epochs_20260724_233544.pth
+  [1/10] success=True status=optimal time=0.835157s gap=-0.0000%
+  [2/10] success=True status=optimal time=0.835810s gap=-0.0000%
+  [3/10] success=True status=optimal time=0.869150s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.834585s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.861012s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.844428s gap=-0.0000%
+  [7/10] success=True status=optimal time=0.881282s gap=-0.0000%
+  [8/10] success=True status=optimal time=1.000687s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.942307s gap=-0.0000%
+  [10/10] success=True status=optimal time=0.908293s gap=+0.0000%
+Run 2: best_rahul_model_pglib_opf_case300_ieee_10000epochs_20260724_234750.pth
+  [1/10] success=True status=optimal time=0.854128s gap=-0.0000%
+  [2/10] success=True status=optimal time=0.861947s gap=-0.0000%
+  [3/10] success=True status=optimal time=0.904563s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.783042s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.694737s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.674108s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.716068s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.804347s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.838923s gap=+0.0000%
+  [10/10] success=True status=optimal time=0.756798s gap=+0.0000%
+Run 3: best_rahul_model_pglib_opf_case300_ieee_10000epochs_20260724_235952.pth
+  [1/10] success=True status=optimal time=0.714160s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.684462s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.675782s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.541903s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.618228s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.780402s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.719183s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.810263s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.749986s gap=+0.0000%
+  [10/10] success=True status=optimal time=0.759577s gap=+0.0000%
+Run 4: best_rahul_model_pglib_opf_case300_ieee_10000epochs_20260725_001150.pth
+  [1/10] success=True status=optimal time=0.703794s gap=-0.0000%
+  [2/10] success=True status=optimal time=0.711975s gap=+0.0000%
+  [3/10] success=True status=optimal time=0.891240s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.745468s gap=+0.0000%
+  [5/10] success=True status=optimal time=0.773218s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.746314s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.601049s gap=-0.0000%
+  [8/10] success=True status=optimal time=0.795194s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.987738s gap=+0.0000%
+  [10/10] success=True status=optimal time=0.979858s gap=+0.0000%
+Run 5: best_rahul_model_pglib_opf_case300_ieee_10000epochs_20260725_002350.pth
+  [1/10] success=True status=optimal time=0.990218s gap=+0.0000%
+  [2/10] success=True status=optimal time=0.975781s gap=+0.0000%
+  [3/10] success=True status=optimal time=1.218169s gap=-0.0000%
+  [4/10] success=True status=optimal time=0.948362s gap=-0.0000%
+  [5/10] success=True status=optimal time=0.910171s gap=-0.0000%
+  [6/10] success=True status=optimal time=0.909727s gap=+0.0000%
+  [7/10] success=True status=optimal time=0.938581s gap=-0.0000%
+  [8/10] success=True status=optimal time=1.067940s gap=-0.0000%
+  [9/10] success=True status=optimal time=0.890131s gap=+0.0000%
+  [10/10] success=True status=optimal time=0.914281s gap=+0.0000%
+
+Done.
+============================================================
+Finished : Mon Sep 21 11:10:51 +03 2026
+Exit code: 0
+============================================================

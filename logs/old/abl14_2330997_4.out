@@ -1,0 +1,62 @@
+============================================================
+Array Job ID : 2330997
+Task ID      : 4
+Node         : node0017
+Case         : pglib_opf_case300_ieee
+Bus          : 300
+============================================================
+Python 3.11.15
+PyTorch: 2.8.0+cu129
+Pandas: 3.0.3
+Pyomo: 6.10.1
+Start index : 40
+End index   : 50
+Chunk ID    : 004
+Command:
+/home/g202210120/.conda/envs/pytorch/bin/python evaluate_warmstart_ablation_array.py --case_name pglib_opf_case300_ieee --bus_number 300 --start_idx 40 --end_idx 50 --chunk_id 004 
+Loading CURRENT dataset: ./dataset/pglib_opf_case300_ieee_10000.pt
+QCQP matrices reconstructed in memory.
+Selected test chunk [40, 50) with 10 instance(s); chunk=004
+
+============================================================
+LOADING EXISTING COLD IPOPT BASELINE
+============================================================
+Cold reference: result/warmstart_cold_case300_chunk004.csv
+Existing cold reference success: 10/10 (100.00%)
+Proceeding with 10 common reference-feasible instances.
+
+Building ORIGINAL matrix-QCQP Pyomo model...
+Building Pyomo model (this happens only once)...
+Model built successfully.
+Model built successfully.
+
+============================================================
+ABLATION CHECKPOINTS
+============================================================
+Pattern: model/300/*ablation_model*.pth
+Found 5 checkpoint(s).
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_135416.pth
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_140403.pth
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_141210.pth
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_141939.pth
+   best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_142942.pth
+
+================ Ablated PINN ================
+
+Run 1: best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_135416.pth
+NN inference: 0.000213142 s/instance
+  [1/10] success=True status=optimal time=1.252162s gap=+0.0000%
+  [2/10] success=True status=optimal time=1.576566s gap=-0.0000%
+  [3/10] success=True status=optimal time=1.455625s gap=-0.0000%
+  [4/10] success=True status=optimal time=1.571712s gap=-0.0000%
+  [5/10] success=True status=optimal time=2.009522s gap=+0.0000%
+  [6/10] success=True status=optimal time=1.434881s gap=+0.0000%
+  [7/10] success=True status=optimal time=1.533765s gap=+0.0000%
+  [8/10] success=True status=optimal time=1.553492s gap=-0.0000%
+  [9/10] success=True status=optimal time=1.651549s gap=+0.0000%
+  [10/10] success=True status=optimal time=1.452595s gap=+0.0000%
+
+Run 2: best_ablation_model_pglib_opf_case300_ieee_10000epochs_20260918_140403.pth
+NN inference: 0.000130713 s/instance
+  [1/10] success=True status=optimal time=1.405030s gap=-0.0000%
+  [2/10] success=True status=optimal time=1.427604s gap=+0.0000%

@@ -1,0 +1,35 @@
+Traceback (most recent call last):
+  File "/nfs/mfirdausi/project/ACOPF-feasible/ACOPF_pinn_baseline_multi.py", line 292, in <module>
+    loss, diag = compute_qcqp_loss(model, Pd_batch, Qd_batch, problem, loss_weights)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/project/ACOPF-feasible/ACOPF_pinn_baseline_multi.py", line 106, in compute_qcqp_loss
+    v, pg, qg = model(Pd_batch, Qd_batch, problem)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/miniconda3/envs/pytorch/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/miniconda3/envs/pytorch/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/project/ACOPF-feasible/ACOPF_pinn_baseline_multi.py", line 72, in forward
+    v_raw = self.net_v(x)
+            ^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/miniconda3/envs/pytorch/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/miniconda3/envs/pytorch/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/miniconda3/envs/pytorch/lib/python3.11/site-packages/torch/nn/modules/container.py", line 253, in forward
+    input = module(input)
+            ^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/miniconda3/envs/pytorch/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/miniconda3/envs/pytorch/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/mfirdausi/miniconda3/envs/pytorch/lib/python3.11/site-packages/torch/nn/modules/linear.py", line 134, in forward
+    return F.linear(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: mat1 and mat2 must have the same dtype, but got Float and Double
