@@ -1,0 +1,119 @@
+Random seed     : 2
+CUDA Hardware Acceleration Active: NVIDIA GeForce RTX 4090
+Problem Geometry Linked -> Matrix Samples: 10000
+======================================================================
+CONTROLLED ABLATION
+Case            : pglib_opf_case300_ieee
+Projection      : full
+Weight strategy : nominal
+Weights         : {'eq_p': 1000.0, 'eq_q': 1000.0, 'thermal': 1.0, 'ang': 1.0, 'v': 1.0, 'obj': 0.0005}
+======================================================================
+
+Beginning execution of parallelized training matrix loops...
+Epoch    0 | Val Loss: 5964.0063 | Val Cost: 510312.28 | Val Max P-Miss: 11.6279 | Max Q-Miss: 8.4470 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 0.0000 [*SAVED BEST*]
+Epoch  100 | Val Loss: 542.5791 | Val Cost: 369634.97 | Val Max P-Miss: 2.8198 | Max Q-Miss: 2.8902 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.9977 [*SAVED BEST*]
+Epoch  200 | Val Loss: 433.2625 | Val Cost: 391037.59 | Val Max P-Miss: 2.1308 | Max Q-Miss: 2.6272 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.9142 [*SAVED BEST*]
+Epoch  300 | Val Loss: 426.1923 | Val Cost: 381549.97 | Val Max P-Miss: 3.4792 | Max Q-Miss: 1.7502 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 32.5961 [*SAVED BEST*]
+Epoch  400 | Val Loss: 357.6630 | Val Cost: 392923.16 | Val Max P-Miss: 1.9559 | Max Q-Miss: 2.4200 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 32.1452 [*SAVED BEST*]
+Epoch  500 | Val Loss: 407.4445 | Val Cost: 389595.69 | Val Max P-Miss: 3.3773 | Max Q-Miss: 2.4929 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 32.1344
+Epoch  600 | Val Loss: 339.0881 | Val Cost: 390494.69 | Val Max P-Miss: 2.2372 | Max Q-Miss: 1.5769 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 32.1769 [*SAVED BEST*]
+Epoch  700 | Val Loss: 344.7564 | Val Cost: 388677.53 | Val Max P-Miss: 2.2334 | Max Q-Miss: 1.5626 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 32.1516
+Epoch  800 | Val Loss: 321.7155 | Val Cost: 388272.34 | Val Max P-Miss: 2.0365 | Max Q-Miss: 1.4946 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 32.0862 [*SAVED BEST*]
+Epoch  900 | Val Loss: 330.1041 | Val Cost: 386019.62 | Val Max P-Miss: 2.5177 | Max Q-Miss: 1.5151 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 32.2097
+Epoch 1000 | Val Loss: 313.6167 | Val Cost: 386969.44 | Val Max P-Miss: 2.1071 | Max Q-Miss: 1.4380 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.9273 [*SAVED BEST*]
+Epoch 1100 | Val Loss: 311.3241 | Val Cost: 385831.44 | Val Max P-Miss: 1.8855 | Max Q-Miss: 1.5752 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.7817 [*SAVED BEST*]
+Epoch 1200 | Val Loss: 340.0380 | Val Cost: 380440.03 | Val Max P-Miss: 1.9609 | Max Q-Miss: 2.3227 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.1548
+Epoch 1300 | Val Loss: 303.0139 | Val Cost: 385878.09 | Val Max P-Miss: 1.8359 | Max Q-Miss: 1.5023 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.7803 [*SAVED BEST*]
+Epoch 1400 | Val Loss: 304.0301 | Val Cost: 385428.06 | Val Max P-Miss: 1.9801 | Max Q-Miss: 1.2835 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.4774
+Epoch 1500 | Val Loss: 299.5898 | Val Cost: 385905.91 | Val Max P-Miss: 2.0758 | Max Q-Miss: 1.2649 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.3419 [*SAVED BEST*]
+Epoch 1600 | Val Loss: 320.6861 | Val Cost: 377146.19 | Val Max P-Miss: 1.8825 | Max Q-Miss: 1.6743 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.8597
+Epoch 1700 | Val Loss: 306.4099 | Val Cost: 380524.38 | Val Max P-Miss: 2.3341 | Max Q-Miss: 1.4308 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.5423
+Epoch 1800 | Val Loss: 292.2425 | Val Cost: 384648.31 | Val Max P-Miss: 1.7689 | Max Q-Miss: 1.5004 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.3300 [*SAVED BEST*]
+Epoch 1900 | Val Loss: 675.7444 | Val Cost: 381241.62 | Val Max P-Miss: 4.6271 | Max Q-Miss: 2.0851 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 32.3641
+Epoch 2000 | Val Loss: 297.3783 | Val Cost: 379640.22 | Val Max P-Miss: 1.8930 | Max Q-Miss: 1.2684 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.0026
+Epoch 2100 | Val Loss: 296.4745 | Val Cost: 381779.69 | Val Max P-Miss: 1.8641 | Max Q-Miss: 1.7346 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.9276
+Epoch 2200 | Val Loss: 291.8263 | Val Cost: 379618.31 | Val Max P-Miss: 2.0557 | Max Q-Miss: 1.1712 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.9787 [*SAVED BEST*]
+Epoch 2300 | Val Loss: 293.0303 | Val Cost: 382422.34 | Val Max P-Miss: 1.9420 | Max Q-Miss: 1.1717 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.8874
+Epoch 2400 | Val Loss: 328.4042 | Val Cost: 370298.78 | Val Max P-Miss: 1.9483 | Max Q-Miss: 1.5535 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.6619
+Epoch 2500 | Val Loss: 349.1244 | Val Cost: 381172.47 | Val Max P-Miss: 3.1039 | Max Q-Miss: 1.6944 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.9564
+Epoch 2600 | Val Loss: 286.3994 | Val Cost: 382524.94 | Val Max P-Miss: 1.9422 | Max Q-Miss: 1.0355 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.4019 [*SAVED BEST*]
+Epoch 2700 | Val Loss: 286.7159 | Val Cost: 380369.50 | Val Max P-Miss: 1.9186 | Max Q-Miss: 1.1158 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.8366
+Epoch 2800 | Val Loss: 288.3130 | Val Cost: 377489.56 | Val Max P-Miss: 1.8950 | Max Q-Miss: 1.1491 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.8109
+Epoch 2900 | Val Loss: 281.9674 | Val Cost: 378438.88 | Val Max P-Miss: 1.8776 | Max Q-Miss: 1.1286 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.6230 [*SAVED BEST*]
+Epoch 3000 | Val Loss: 284.9398 | Val Cost: 378370.62 | Val Max P-Miss: 1.8633 | Max Q-Miss: 1.1685 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.7087
+Epoch 3100 | Val Loss: 291.7324 | Val Cost: 376197.97 | Val Max P-Miss: 2.3554 | Max Q-Miss: 1.1967 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.6551
+Epoch 3200 | Val Loss: 278.4902 | Val Cost: 380703.38 | Val Max P-Miss: 1.8238 | Max Q-Miss: 1.0721 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.2517 [*SAVED BEST*]
+Epoch 3300 | Val Loss: 329.2318 | Val Cost: 374325.19 | Val Max P-Miss: 1.9142 | Max Q-Miss: 2.2483 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.7436
+Epoch 3400 | Val Loss: 275.3383 | Val Cost: 380344.09 | Val Max P-Miss: 1.8615 | Max Q-Miss: 1.0617 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.8167 [*SAVED BEST*]
+Epoch 3500 | Val Loss: 275.0604 | Val Cost: 376829.47 | Val Max P-Miss: 1.8874 | Max Q-Miss: 1.0575 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.4270 [*SAVED BEST*]
+Epoch 3600 | Val Loss: 273.8774 | Val Cost: 378439.88 | Val Max P-Miss: 1.8485 | Max Q-Miss: 1.1770 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.0002 [*SAVED BEST*]
+Epoch 3700 | Val Loss: 282.1686 | Val Cost: 376041.56 | Val Max P-Miss: 2.0070 | Max Q-Miss: 1.0686 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.2507
+Epoch 3800 | Val Loss: 300.1666 | Val Cost: 374814.62 | Val Max P-Miss: 2.3827 | Max Q-Miss: 1.0935 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.1668
+Epoch 3900 | Val Loss: 280.3851 | Val Cost: 377530.94 | Val Max P-Miss: 2.0040 | Max Q-Miss: 1.0622 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.0947
+Epoch 4000 | Val Loss: 306.0612 | Val Cost: 369441.03 | Val Max P-Miss: 1.9041 | Max Q-Miss: 1.8512 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.8659
+Epoch 4100 | Val Loss: 276.5391 | Val Cost: 377306.44 | Val Max P-Miss: 1.8586 | Max Q-Miss: 1.0471 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.0699
+Epoch 4200 | Val Loss: 316.6823 | Val Cost: 372899.41 | Val Max P-Miss: 3.0518 | Max Q-Miss: 1.4680 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.1128
+Epoch 4300 | Val Loss: 273.5801 | Val Cost: 377006.88 | Val Max P-Miss: 1.8506 | Max Q-Miss: 1.0329 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.9886 [*SAVED BEST*]
+Epoch 4400 | Val Loss: 309.6522 | Val Cost: 368462.53 | Val Max P-Miss: 1.8514 | Max Q-Miss: 1.5132 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.4086
+Epoch 4500 | Val Loss: 272.5388 | Val Cost: 373130.97 | Val Max P-Miss: 1.8464 | Max Q-Miss: 1.1768 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.0930 [*SAVED BEST*]
+Epoch 4600 | Val Loss: 293.7702 | Val Cost: 368220.25 | Val Max P-Miss: 2.3320 | Max Q-Miss: 1.3237 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.4818
+Epoch 4700 | Val Loss: 278.7712 | Val Cost: 372064.09 | Val Max P-Miss: 1.8907 | Max Q-Miss: 1.0395 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.3901
+Epoch 4800 | Val Loss: 268.4742 | Val Cost: 375901.34 | Val Max P-Miss: 1.8444 | Max Q-Miss: 1.1088 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.2527 [*SAVED BEST*]
+Epoch 4900 | Val Loss: 269.5787 | Val Cost: 376064.78 | Val Max P-Miss: 1.8474 | Max Q-Miss: 1.0343 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.8829
+Epoch 5000 | Val Loss: 371.5867 | Val Cost: 371223.75 | Val Max P-Miss: 1.8843 | Max Q-Miss: 1.3265 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 31.8799
+Epoch 5100 | Val Loss: 267.8280 | Val Cost: 374960.09 | Val Max P-Miss: 1.8513 | Max Q-Miss: 1.0965 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.8746 [*SAVED BEST*]
+Epoch 5200 | Val Loss: 270.6945 | Val Cost: 372671.88 | Val Max P-Miss: 1.8296 | Max Q-Miss: 1.1033 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.1327
+Epoch 5300 | Val Loss: 272.7712 | Val Cost: 370713.75 | Val Max P-Miss: 1.9535 | Max Q-Miss: 1.0802 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.4419
+Epoch 5400 | Val Loss: 271.4801 | Val Cost: 374851.56 | Val Max P-Miss: 1.8513 | Max Q-Miss: 0.9947 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.9437
+Epoch 5500 | Val Loss: 283.6290 | Val Cost: 369933.47 | Val Max P-Miss: 1.8289 | Max Q-Miss: 1.5652 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.2833
+Epoch 5600 | Val Loss: 266.6603 | Val Cost: 372945.03 | Val Max P-Miss: 1.8255 | Max Q-Miss: 0.9709 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.1168 [*SAVED BEST*]
+Epoch 5700 | Val Loss: 280.5659 | Val Cost: 366772.88 | Val Max P-Miss: 1.9654 | Max Q-Miss: 1.0687 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.6825
+Epoch 5800 | Val Loss: 271.0482 | Val Cost: 370900.88 | Val Max P-Miss: 1.8811 | Max Q-Miss: 1.0575 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.3810
+Epoch 5900 | Val Loss: 266.2444 | Val Cost: 373630.78 | Val Max P-Miss: 1.8402 | Max Q-Miss: 1.0419 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.7400 [*SAVED BEST*]
+Epoch 6000 | Val Loss: 274.1863 | Val Cost: 373773.19 | Val Max P-Miss: 1.9281 | Max Q-Miss: 1.0187 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.6965
+Epoch 6100 | Val Loss: 267.3198 | Val Cost: 369807.62 | Val Max P-Miss: 1.8786 | Max Q-Miss: 1.0944 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.9649
+Epoch 6200 | Val Loss: 281.1238 | Val Cost: 370343.00 | Val Max P-Miss: 1.8191 | Max Q-Miss: 1.0500 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 30.1298
+Epoch 6300 | Val Loss: 270.6702 | Val Cost: 369044.16 | Val Max P-Miss: 1.8710 | Max Q-Miss: 1.0383 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 28.6709
+Epoch 6400 | Val Loss: 266.7374 | Val Cost: 371890.88 | Val Max P-Miss: 1.8609 | Max Q-Miss: 1.1583 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 28.3099
+Epoch 6500 | Val Loss: 263.3864 | Val Cost: 371129.94 | Val Max P-Miss: 1.8653 | Max Q-Miss: 1.0980 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 29.0669 [*SAVED BEST*]
+Epoch 6600 | Val Loss: 267.1747 | Val Cost: 371772.56 | Val Max P-Miss: 1.8334 | Max Q-Miss: 1.1749 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 28.4111
+Epoch 6700 | Val Loss: 267.9921 | Val Cost: 370728.09 | Val Max P-Miss: 1.8894 | Max Q-Miss: 1.0623 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 28.2467
+Epoch 6800 | Val Loss: 270.8818 | Val Cost: 368120.59 | Val Max P-Miss: 1.9168 | Max Q-Miss: 1.0572 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 28.0311
+Epoch 6900 | Val Loss: 266.7863 | Val Cost: 370012.69 | Val Max P-Miss: 1.8749 | Max Q-Miss: 1.0657 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 28.5909
+Epoch 7000 | Val Loss: 271.3208 | Val Cost: 369803.12 | Val Max P-Miss: 1.8661 | Max Q-Miss: 1.1478 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 28.0299
+Epoch 7100 | Val Loss: 281.9133 | Val Cost: 367079.69 | Val Max P-Miss: 1.8667 | Max Q-Miss: 1.1243 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 28.2549
+Epoch 7200 | Val Loss: 266.2083 | Val Cost: 370272.34 | Val Max P-Miss: 1.8163 | Max Q-Miss: 1.0529 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.8427
+Epoch 7300 | Val Loss: 275.4485 | Val Cost: 368898.00 | Val Max P-Miss: 1.7912 | Max Q-Miss: 1.3459 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.0020
+Epoch 7400 | Val Loss: 263.6812 | Val Cost: 369781.19 | Val Max P-Miss: 1.8076 | Max Q-Miss: 1.0098 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 28.1134
+Epoch 7500 | Val Loss: 264.3495 | Val Cost: 370838.34 | Val Max P-Miss: 1.8180 | Max Q-Miss: 1.0541 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.0225
+Epoch 7600 | Val Loss: 272.0863 | Val Cost: 368975.88 | Val Max P-Miss: 1.8143 | Max Q-Miss: 1.1794 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.9273
+Epoch 7700 | Val Loss: 262.0952 | Val Cost: 370872.59 | Val Max P-Miss: 1.8448 | Max Q-Miss: 1.0499 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.7573 [*SAVED BEST*]
+Epoch 7800 | Val Loss: 275.5162 | Val Cost: 369373.66 | Val Max P-Miss: 1.8568 | Max Q-Miss: 1.7172 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 26.9368
+Epoch 7900 | Val Loss: 268.4016 | Val Cost: 370236.00 | Val Max P-Miss: 1.8829 | Max Q-Miss: 1.0452 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.4034
+Epoch 8000 | Val Loss: 270.8526 | Val Cost: 369563.75 | Val Max P-Miss: 1.8631 | Max Q-Miss: 0.9868 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.8863
+Epoch 8100 | Val Loss: 263.9659 | Val Cost: 369714.66 | Val Max P-Miss: 1.8450 | Max Q-Miss: 1.0726 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.8121
+Epoch 8200 | Val Loss: 271.0399 | Val Cost: 368455.50 | Val Max P-Miss: 1.8606 | Max Q-Miss: 1.0085 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 26.8066
+Epoch 8300 | Val Loss: 270.4915 | Val Cost: 369203.75 | Val Max P-Miss: 1.9052 | Max Q-Miss: 1.0956 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.1710
+Epoch 8400 | Val Loss: 288.7429 | Val Cost: 367687.62 | Val Max P-Miss: 1.9047 | Max Q-Miss: 1.4245 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 25.4548
+Epoch 8500 | Val Loss: 291.9890 | Val Cost: 370159.12 | Val Max P-Miss: 1.9100 | Max Q-Miss: 1.3687 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 25.9918
+Epoch 8600 | Val Loss: 258.5495 | Val Cost: 370277.47 | Val Max P-Miss: 1.8607 | Max Q-Miss: 0.9917 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 26.1078 [*SAVED BEST*]
+Epoch 8700 | Val Loss: 267.6675 | Val Cost: 368568.72 | Val Max P-Miss: 1.9041 | Max Q-Miss: 1.0482 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 26.0097
+Epoch 8800 | Val Loss: 258.2281 | Val Cost: 369201.94 | Val Max P-Miss: 1.8647 | Max Q-Miss: 1.0380 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 26.7455 [*SAVED BEST*]
+Epoch 8900 | Val Loss: 262.7673 | Val Cost: 369041.09 | Val Max P-Miss: 1.8680 | Max Q-Miss: 1.0846 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 26.7868
+Epoch 9000 | Val Loss: 265.4143 | Val Cost: 370212.53 | Val Max P-Miss: 1.9066 | Max Q-Miss: 1.2546 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 26.0786
+Epoch 9100 | Val Loss: 269.9974 | Val Cost: 369748.44 | Val Max P-Miss: 1.8040 | Max Q-Miss: 1.4276 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 25.7856
+Epoch 9200 | Val Loss: 262.9909 | Val Cost: 369503.38 | Val Max P-Miss: 1.8711 | Max Q-Miss: 1.0692 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 25.9121
+Epoch 9300 | Val Loss: 261.9361 | Val Cost: 368037.41 | Val Max P-Miss: 1.8688 | Max Q-Miss: 1.1688 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 26.6674
+Epoch 9400 | Val Loss: 265.3427 | Val Cost: 368527.31 | Val Max P-Miss: 1.7974 | Max Q-Miss: 1.1619 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 25.8710
+Epoch 9500 | Val Loss: 261.9147 | Val Cost: 368672.97 | Val Max P-Miss: 1.8778 | Max Q-Miss: 1.4341 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 26.0639
+Epoch 9600 | Val Loss: 262.7283 | Val Cost: 369307.97 | Val Max P-Miss: 1.8897 | Max Q-Miss: 1.0647 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 25.8245
+Epoch 9700 | Val Loss: 262.8757 | Val Cost: 368765.00 | Val Max P-Miss: 1.8453 | Max Q-Miss: 1.1257 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 25.9038
+Epoch 9800 | Val Loss: 268.5472 | Val Cost: 365702.28 | Val Max P-Miss: 1.8739 | Max Q-Miss: 1.4178 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 27.0226
+Epoch 9900 | Val Loss: 275.2342 | Val Cost: 368478.03 | Val Max P-Miss: 1.7898 | Max Q-Miss: 1.6808 | Val Max Gen Viol: 0.0000 | Val Max Thermal: 25.6858
+
+==================================================
+Training Complete!
+Total Training Time: 00h 07m 27.04s
+Best model weights saved to: ./model/best_controlled_full_nominal_pglib_opf_case300_ieee_10000epochs_seed2_20260922_211416.pth
+==================================================
+
