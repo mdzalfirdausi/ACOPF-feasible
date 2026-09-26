@@ -203,7 +203,6 @@ def gaussian_batch(base_tensor, batch_size, variation_std=0.05):
 def generate_and_save_dataset(problem, total_samples=10000, save_path="acopf_problem_with_data.pt"):
     print(f"Generating {total_samples} static samples...")
     
-    # Generate the full batch of demands (clamping Pd to 0, leaving Qd unclamped)
     Pd_all = gaussian_batch(problem["Pd"], batch_size=total_samples, variation_std=0.05)
     Qd_all = gaussian_batch(problem["Qd"], batch_size=total_samples, variation_std=0.05)
     
